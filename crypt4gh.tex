@@ -253,7 +253,7 @@ struct Encryption_parameters {
   le_uint64                         plaintext_start;
   le_uint64                         plaintext_end;
   le_uint64                         ciphertext_start;
-  le_uint64                         counter_offset;
+  le_int64                          counter_offset;
 
   enum Encryption_method<le_uint32> method;
 
@@ -279,6 +279,7 @@ header\_len from the unencrypted header should be added to this to find the loca
 This allows the correct counter value to be calculated for files that have been concatenated together.
 
 The regions [plaintext\_start..plaintext\_end) MUST NOT overlap between records.
+Likewise, the corresponding cipher-text blocks MUST NOT overlap.
 To facilitate streaming, they SHOULD be in order, and the order of blocks in the cipher-text SHOULD match the order
 in the plain-text.
 
