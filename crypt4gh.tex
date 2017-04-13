@@ -1,0 +1,422 @@
+% GA4GH File Encryption Standard specification
+% When editing, please start all sentences on a new line; and try to avoid source lines longer than 120 characters.
+\documentclass[10pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage[pdfborder={0 0 0},hyperfootnotes=false]{hyperref}
+\usepackage{parskip}
+\newcommand{\mailtourl}[1]{\href{mailto:#1}{\tt #1}}
+\newcommand{\tagvalue}[1]{\tt #1}
+\newcommand{\tagregex}[1]{\tt #1}
+\begin{document}
+
+\input{crypt4gh.ver}
+\title{GA4GH File Encryption Standard}
+\author{Robert Davies}
+\date{\headdate}
+\maketitle
+\begin{quote}\small
+The master version of this document can be found at
+\url{https://github.com/samtools/hts-specs}.\\
+This printing is version~\commitdesc\ from that repository,
+last modified on the date shown above.
+\end{quote}
+\vspace*{1em}
+
+\begin{abstract}
+This document describes the format for Global Alliance for Genomics and Health (GA4GH) encrypted files.
+Encryption helps to prevent accidental disclosure of confidential information.
+Allowing programs to directly read and write data in an encrypted format reduces the chance of such disclosure.
+The format described here can be used to encrypt any underlying file format.
+It also allows for seeking on the encryted data.
+In particular indexes on the plain text version can also be used on the encrypted file without modification.
+\end{abstract}
+\newpage
+\section*{Copyright Notice}
+Copyright \copyright 2017 Genome Research Limited.  All rights reserved.
+
+\tableofcontents
+\newpage
+\section{Introduction}
+\subsection{Purpose}
+By its nature, genomic data can include information of a confidential nature about the health of individuals.
+It is important that such information is not accidentally disclosed.
+One part of the defense against such disclosure is to, as much as possible, keep the data in an encrypted format.
+
+This document describes a file format that can be used to store data in an encrypted state.
+Existing applications can, with minimal modification, read and write data in the encrypted format.
+The choice of encryption also allows the encrypted data to be read starting from any location, facilitating indexed
+access to files.
+
+\subsection{Requirements}
+The key words ``MUST'', ``MUST NOT'', ``REQUIRED'', ``SHALL'', ``SHALL NOT'', ``SHOULD'', ``SHOULD NOT'',
+``RECOMMENDED'', ``MAY'', and ``OPTIONAL'' in this document are to be interpreted as described in \cite{RFC2119}.
+
+\subsection{Terminology}
+\begin{description}
+\item[Advanced Encryption Standard (AES)]~\\
+A FIPS-approved algorithm that can be used to protect data, defined in
+\cite{AESSTD}.
+AES encrypts data in fixed-sized blocks of 16 bytes.
+
+\item[cipher-text]~\\
+The encrypted version of the data.
+
+\item[counter (CTR) mode]~\\
+A method of using a cipher with a fixed block size to encrypt data streams that are longer than a single block,
+converting it to a pseudo-random block of bytes.
+The counter is  incremented for each block, leading to the generation of a repeatable byte stream.
+This stream can be XORed with the plain-text to generate the cipher-text.
+Because XOR is reversible, the same operation can also be used to convert the cipher-text back into the plain-text.
+
+CTR mode, and its use with AES, is described in \cite{CTRMODE}.
+
+\item[plain-text]~\\
+The unencrypted version of the data.
+ 
+\end{description}
+
+\section{Encrypted Representation Overview}
+The encrypted file consists of three parts:
+
+\begin{itemize}
+\item An unencypted header, containing a magic number, version number, and the length of the encrypted header
+
+\item An encrypted header.  This is encrypted using an asymmetric encryption algorithm.
+It lists the encryption keys and initialization vectors needed to decrypt the encrypted data section.
+
+\item The encrypted data.
+This is the actual application data.
+It is encrypted using a symmetric encryption algorithm as described in the encrypted header.
+\end{itemize}
+
+\section{Detailed Specification}
+\subsection{Overall Conventions}
+\subsubsection{Hexadecimal Numbers}
+Hexadecimal values are written using the digits 0-9, and letters a-f for values 10-15.
+Values are written with the most-significant digit on the left, and prefixed with "0x".
+
+\subsubsection{Byte Ordering}
+The basic data size is the byte (8 bits).
+Multi-byte values need to be stored in a defined order.
+This order will be one of the following:
+\begin{description}
+\item[Least-significant byte first (``little-endian'')]~\\
+The value 1234 decimal (0x4d2) is stored as the byte stream 0xd2 0x04.
+
+\item[Most-significant byte first (``big-endian'')]~\\
+The value 1234 decimal (0x4d2) is stored as the byte stream 0x04 0xd2.
+\end{description}
+
+\subsubsection{Integer Types}
+Integers can be either signed or unsigned.
+Signed values are stored in two's complement form.
+
+\subsubsection{Multi-byte Integer Types}
+\begin{center}
+\begin{tabular}{l l l l}
+\hline
+\textbf{Name} & \textbf{Byte Ordering} & \textbf{Integer Type} & \textbf{Size (bytes)} \\
+\hline
+byte & & unsigned & 1 \\
+le\_int32 & little-endian & signed & 4 \\
+le\_uint32 & little-endian & unsigned & 4 \\
+le\_int64 & little-endian & signed & 8 \\
+le\_uint64 & little-endian & unsigned & 8 \\
+be\_uint128 & big-endian & unsigned & 16 \\
+\end{tabular}
+\end{center}
+
+\subsubsection{Vectors}
+A vector is a stream of elements of the same type (which may be a structure).
+The number of items may be specified either as an constant value, or in reference to a known integer value (for
+example, a variable previously read from the file).
+
+\begin{verbatim}
+le_in32   num     // Number of v2 array elements
+le_int32  v1[8]   // Eight four-byte little-endian integers
+le_int64  v2[num] // 'num' eight-byte little-endian integers
+\end{verbatim}
+
+When vectors are serialized to a file, the elements are written with no padding between them.
+
+\subsubsection{Structures}
+Structure types may be defined for convenience.
+The syntax for definition is similar to that of C.
+
+\begin{verbatim}
+struct demo {
+  byte string[8];
+  le_int32 number1;
+  le_uint64 number2;
+};
+\end{verbatim}
+
+When structures are serialized to a file, elements are written in the given order with no padding between them.
+So the structure above would be written as twenty bytes - eight for the array `string', four for the integer `number1'
+and eight for the integer `number2'.
+
+\subsubsection{Enumerated Types}
+Enumerated types may only take one of a given set of values.
+The data type used to store the enumerated value is given in angle brackets after the type name.
+Every element of an enumerated type must be assigned a value.
+It is not valid to compare values between two enumerated types.
+
+\begin{verbatim}
+enum Animal<le_uint32> {
+  cat    = 1;
+  dog    = 2;
+  rabbit = 3;
+};
+\end{verbatim}
+
+\subsubsection{Variants}
+Parts of structures may vary depending on information available at the time of decoding.
+Which variant to use is selected by an enumerated type.
+There must be a case for every possible enumerated value.
+Cases have limited fall-through.
+Consecutive cases with no fields in between all contain the same fields.
+
+\begin{verbatim}
+struct AnimalFeatures {
+  select (enum Animal) {
+    case cat:
+    case dog:
+      le_uint32 hairyness;
+      le_uint32 whisker_length;
+
+    case rabbit:
+      le_uint32 ear_length;
+  };
+};
+\end{verbatim}
+
+For the `cat' and `dog' cases, `struct AnimalFeatures' is eight bytes long, and contains two unsigned four-byte
+little-endian values.
+For the `rabbit' case it is four bytes long, and contains a single four-byte little-endian value.
+
+If the cases are different lengths (as above) then the size of the overall structure depends on the variant chosen.
+There is NO padding to make the cases the same length unless it is explicitly defined.
+
+\subsection{Unencrypted Header}
+
+The file starts with an unencrypted header, with the following structure:
+
+\begin{verbatim}
+struct Unencrypted_header {
+  byte      magic_number[8];
+  le_uint32 version;
+  le_uint32 header_len;
+};
+\end{verbatim}
+
+The magic\_number is the ASCII representation of the string ``crypt4gh''.
+
+The version number is stored as a four-byte little-endian unsigned integer.
+The current version number is 1.
+
+hdr\_len is the sum of the lengths of the unencrypted and encrypted headers.
+It is stored as a four-byte little-endian unsigned integer.
+As it includes the unencrypted header, hdr\_len will always have a value of at least 16.
+
+The current byte representation of the magic number and version is:
+\begin{verbatim}
+0x63 0x72 0x79 0x70 0x74 0x34 0x67 0x68 0x01 0x00 0x00 0x00
+============= magic_number============= ===== version =====
+\end{verbatim}
+
+\subsection{Encrypted Header}
+\subsubsection{Encryption Method}
+The encrypted header is encoded in the OpenPGP message format \cite{RFC4880}.
+
+\subsubsection{Plain-text Format}
+The plain-text data encoded in the encrypted header has the following overall structure:
+\begin{verbatim}
+struct Encrypted_header {
+  le_uint32                     number_records;
+  struct Encryption_parameters  records[number_records];
+};
+\end{verbatim}
+
+`number\_records' gives the number of `Encryption\_parameters' records that follow.
+Each record corresponds to a range of bytes in the plain-text version of the file.
+This allows chunks of encrypted data to be rapidly concatenated together without the need to decrypt and rencrypt the
+whole file.
+
+The `Encryption\_parameters' type is defined as:
+
+\begin{verbatim}
+enum Encryption_method<le_uint32> {
+  AES-256-CTR = 0;
+};
+
+struct Encryption_parameters {
+  le_uint64                         plaintext_start;
+  le_uint64                         plaintext_end;
+  le_uint64                         ciphertext_start;
+  le_uint64                         counter_offset;
+
+  enum Encryption_method<le_uint32> method;
+
+  select (Encryption_method) {
+    case AES-256-CTR:
+      byte       key[32];
+      be_uint128 iv;
+  };
+};
+\end{verbatim}
+
+`plaintext\_start' and `plaintext\_end' define the range of plain-text bytes over which this record is valid.
+The positions are indexed counting from zero.
+plaintext\_end is the byte one past the end of the range.
+The value of plaintext\_end is allowed be be beyond the real end of the plain-text data.
+This means it can be set to \verb+0xffffffffffffffff+ when the final length of the file is unknown.
+
+`ciphertext\_start' is the location in the encrypted data where the given plain-text data starts.
+This location counts from 0 at the start of the encrypted data section.
+header\_len from the unencrypted header should be added to this to find the location in the encrypted file.
+
+`counter\_offset' is used to adjust the counter value used in counter mode (CTR) encryption.
+This allows the correct counter value to be calculated for files that have been concatenated together.
+
+The regions [plaintext\_start..plaintext\_end) MUST NOT overlap between records.
+To facilitate streaming, they SHOULD be in order, and the order of blocks in the cipher-text SHOULD match the order
+in the plain-text.
+
+The union of regions over all the records does not have to cover the entire plain-text.
+This allows selective access to parts of a file to be granted.
+When preparing files, inaccessible parts SHOULD NOT be included in the cipher-text.
+It wastes the recipients storage, and readers still may be able to gain access if they are encrypted with the same key
+as other parts of the file that are permitted.
+
+`method' is an enumerated type that describes the type of encryption to be used.
+
+`key' is a secret encryption key.
+
+`iv' is an initialization vector.
+
+\subsection{Encrypted Data}
+\subsubsection{AES-256-CTR Mode Encryption}
+
+AES-CTR mode generates a byte stream by AES encrypting a sequential counter.
+The counter starts at the given IV and increments by 1 for each block of 16 bytes.
+This byte stream is XORed with the plain-text to produce the cipher-text.
+
+The cipher-text is decrypted by XORing it with the same byte stream, which can be generated if the IV and encryption
+key are known.
+
+In this format, the counter value C for a particular plain-text file offset P can be calculated as follows:
+\begin{verbatim}
+  C = (P + counter_offset) / 16
+\end{verbatim}
+where counter\_offset is given the the encrypted header record.
+The sum (P + counter\_offset) should always be positive.
+
+The counter value is then combined with the IV by addition.
+For compatibility with OpenSSL, both C and IV are treated as 16 byte big-endian values.
+
+The sum C + IV and the key are used to generate 16 bytes of key stream E:
+\begin{verbatim}
+  E[0..15] = AES(key, C + IV)
+\end{verbatim}
+  This can be used to encrypt the byte B at file offset P:
+\begin{verbatim}
+  B' = B XOR E[(P + counter_offset) % 16]  where % is the modulo operator.
+\end{verbatim}
+
+\subsubsection{Partial Blocks}
+It is likely that the end of the file, or the boundaries of a region listed in the encrypted header, will not occur at
+an exact multiple of the cipher block length.
+In such cases, the unused bytes of the key stream are simply discarded.
+There is no need to pad the encrypted data.
+
+\section{Security Considerations}
+\subsection{Threat Model}
+This format is only designed to protect files at rest from accidental disclosure.
+In particular, it is not designed to protect files during transmission over insecure networks - existing solutions like
+Transport Layer Security (TLS) as described in \cite{RFC5246} should be used for this.
+
+\subsection{Selection of Keys and IVs}
+The security of the format depends on attackers not being able to guess the encryption key (and to a lesser extent the
+IV).
+The encryption key MUST be generated using a cryptographically-secure psuedo-random number generator.
+This makes the chance of guessing a key vanishingly small.
+
+When using CTR mode encryption, it is vital never to reuse an (IV + CTR) value for the same cryptographic key.
+Doing so could lead to two blocks being encrypted with identical key streams.
+If this happens then an attacker can learn the XOR of the plain-text of the two blocks by simply XORing the cipher-text
+blocks (as key\_stream XOR key\_stream = 0).
+Values of (IV + CTR) MUST NOT be reused for the same key.
+This can be achieved by:
+
+\begin{itemize}
+\item Choosing a random IV using a cryptographically-secure random number generator.
+\item Always incrementing the counter for each block (as happens in this format).
+\end{itemize}
+
+If both the cryptographic key and IV are chosen randomly for each file, the chance of reusing a combination of
+(key, IV + CTR) becomes vanishingly small.
+Implementations SHOULD choose the IV using a cryptographically secure random number generator.
+
+\subsection{Message Forgery}
+Forging a message encrypted in CTR mode is trivial, especially if the attacker can guess the plain-text of an encrypted
+message.
+They simply XOR the cipher-text with a chosen byte stream.
+On decoding, the result will be the original plain-text XORed with the attacker's byte stream.
+
+If an attacker knows that part of an encrypted file is, for example, a gzip header then they know the plain-text bytes
+and can replace that part with any data they choose.
+
+This format is currently not resistant to forgery.
+Care should be taken to protect files from unauthorised tampering.
+This is also why extra precautions should be taken when transmitting files over networks.
+
+\subsection{No File Updates Permitted}
+While it is possible to update parts of a file written in CTR mode, it violates the rule about not reusing the value
+of (IV + CTR) for a given key.
+An attacker who compares the before and after versions of the file will learn the XOR of the before and after
+plain-texts.
+
+Implementations MUST NOT update encrypted files.
+Once written, a section of the file must never be altered.
+
+\section{References}
+
+\begin{thebibliography}{XXXXXXX}
+
+% Normative references
+
+\bibitem[AESSTD]{AESSTD}
+  National Institute of Standards and Technology,\\
+  \emph{"Announcing the ADVANCED ENCRYPTION STANDARD (AES)", FIPS 197},\\
+  \url{http://csrc.nist.gov/publications/fips/fips197/fips-197.pdf},\\
+  November 26, 2001.
+
+\bibitem[RFC2119]{RFC2119}
+  Bradner, S.,\\
+  \emph{"Key words for use in RFCs to Indicate Requirement Levels", BCP 14, RFC 2119},\\
+  \url{https://www.rfc-editor.org/info/rfc2119},\\
+  March 1997.
+
+\bibitem[RFC4880]{RFC4880}
+  Callas, J., Donnerhacke, L., Finney, H., Shaw D., Thayer, R.,\\
+  \emph{``OpenPGP Message Format'', RFC4880},\\
+  \url{https://www.rfc-editor.org/info/rfc4880},\\
+  November 2007.
+
+% Informational references
+
+\bibitem[CTRMODE]{CTRMODE}
+  Dworkin, M, National Institute of Standards and Technology,\\
+  \emph{"Recommendation for Block Cipher Modes of Operation", SP800-38A},\\
+  \url{http://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-38a.pdf},\\
+  December 2001.
+
+\bibitem[RFC5246]{RFC5246}
+  Dierks, T., Rescorla, E.,\\
+  \emph{"The Transport Layer Security (TLS) Protocol Version 1.2", RFC 5246},\\
+  \url{https://www.rfc-editor.org/info/rfc5246},\\
+  August 2008.
+
+\end{thebibliography}
+
+\end{document}
