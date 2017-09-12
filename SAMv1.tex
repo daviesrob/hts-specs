@@ -666,7 +666,15 @@ hold the annotation information, see Section~\ref{sec:recommended-practice}.
 
 \pagebreak
 
-\section{The BAM Format Specification}
+\section{The BAM and BAM2 Format Specifications}
+
+BAM and BAM2 are binary serializations of alignment data.
+They are designed to be easy to implement, as no complex transformations are needed when creating a record.
+The formats use BGZF block compression to reduce file sizes, ensure data integrity via a CRC, and allow random access.
+
+BAM2 is a modified version of BAM which allows longer alignments to be stored.
+Such alignments can be needed for very long consensus sequences, and for data from sequencing technologies that can make very long reads.
+To aid backwards compatibility, implementations should be able to read both the BAM and BAM2 formats, and should prefer to use BAM unless it may be necessary to store alignments with more than 65535 operations.
 
 \subsection{The BGZF compression format}
 
@@ -866,6 +874,92 @@ In SAM, all single (i.e., non-array) integer types are stored as `{\tt i}', rega
 \footnotetext{A `{\tt B}'-typed (array) tag--value pair is stored as follows. The first two bytes keep the two-character tag. The 3rd byte is always `{\tt B}'.
 	The 4th byte, matching {\tt /\char94[cCsSiIf]\$/}, indicates the type of an element in the array.
 	Bytes from 5 to 8 encode a little-endian 32-bit integer which gives the number of elements in the array.
+	Bytes starting from the 9th store the array in the little-endian byte order; the number of these
+	bytes is determined by the type and the length of the array.}
+
+\pagebreak
+
+\subsection{The BAM2 format}
+BAM2 is an evolution of the BAM format.
+It is designed to fix some limitations of the original format (notably the small size of the n\_cigar\_op field) while maintaining the ability to efficiently read and write the alignment data.
+A number of fields where negative values are not useful have been changed to unsigned types.
+
+The changes to the original BAM format are:
+
+\begin{itemize}
+\item The {\sf magic} string is changed to {\tt BAM\char92 2}.
+\item The type of {\sf l\_text} is changed to {\tt uint32\_t}.
+\item The type of {\sf n\_ref} is changed to {\tt uint32\_t}.  Note that this is to emphasize that negative values are not allowed.  As {\sf refID} is signed, the maximum usable value is 2$^{31}$-1.
+\item The type of {\sf l\_name} is changed to {\tt uint32\_t}.
+\item The type of {\sf l\_ref} is changed to {\tt uint32\_t}.
+\item The type of {\sf block\_size} is changed to {\tt uint32\_t}.
+\item The {\sf bin} field is removed from alignment records, as it can easily be computed when needed.
+\item {\sf flag} is moved to the location previously occupied by bin.
+\item The type of {\sf n\_cigar\_op} is changed to {\tt uint32\_t} - this increases the maximum number of CIGAR operations allowed from 2$^{16}$-1 to 2$^{32}$-1.
+\item The type of {\sf l\_seq} is changed to {\tt uint32\_t}.
+\item The order of the {\sf cigar} and {\sf read\_name} fields is swapped.
+\item The number of elements in a `{\tt B}'-typed tag is stored as an unsigned value.
+\end{itemize}
+
+BAM2 is compressed in the BGZF format.
+All multi-byte numbers in BAM2 are little-endian, regardless of the machine endianness.
+The format is formally described in the following table where values in brackets are the default when the corresponding information is not available; an underlined word in uppercase denotes a field in the SAM format.
+
+\pagebreak
+
+\begin{table}[ht]
+\centering
+{\small
+\begin{tabular}{|l|l|l|p{8.15cm}|l|r|}
+  \cline{1-6}
+  \multicolumn{3}{|c|}{\bf Field} & \multicolumn{1}{c|}{\bf Description} & \multicolumn{1}{c|}{\bf Type} & \multicolumn{1}{c|}{\bf Value} \\\cline{1-6}
+  \multicolumn{3}{|l|}{\sf magic} & BAM2 magic string & {\tt char[4]} & {\tt BAM\char92 2}\\\cline{1-6}
+  \multicolumn{3}{|l|}{\sf l\_text} & Length of the header text, including any {\tt NUL} padding & {\tt uint32\_t} & \\\cline{1-6}
+  \multicolumn{3}{|l|}{\sf text} & Plain header text in SAM; not necessarily {\tt NUL}-terminated & {\tt char[{\sf l\_text}]} & \\\cline{1-6}
+  \multicolumn{3}{|l|}{\sf n\_ref} & \# reference sequences & {\tt uint32\_t}\footnotemark\ & \\\cline{1-6}
+  \multicolumn{6}{|c|}{\textcolor{gray}{\it List of reference information (n=n\_ref)}} \\\cline{2-6}
+  & \multicolumn{2}{l|}{\sf l\_name} & Length of the reference name plus 1 (including {\tt NUL}) & {\tt uint32\_t} & \\\cline{2-6}
+  & \multicolumn{2}{l|}{\sf name} & Reference sequence name; {\tt NUL}-terminated & {\tt char[{\sf l\_name}]} & \\\cline{2-6}
+  & \multicolumn{2}{l|}{\sf l\_ref} & Length of the reference sequence & {\tt uint32\_t} & \\\cline{1-6}
+  \multicolumn{6}{|c|}{\textcolor{gray}{\it List of alignments (until the end of the file)}} \\\cline{2-6}
+  & \multicolumn{2}{l|}{\sf block\_size} & Length of the remainder of the alignment record & {\tt uint32\_t} & \\\cline{2-6}
+  & \multicolumn{2}{l|}{\sf refID} & Reference sequence ID, $-1\leq{\sf refID}<{\sf n\_ref}$; -1 for a read without a mapping position. & {\tt int32\_t} & [-1] \\\cline{2-6}
+  & \multicolumn{2}{l|}{\sf pos} & 0-based leftmost coordinate ($=\underline{\sf POS}-1$)& {\tt int32\_t} & [-1]\\\cline{2-6}
+  & \multicolumn{2}{l|}{\sf flag} & Bitwise flags (= \underline{\sf FLAG})\footnotemark\ & {\tt uint16\_t} & \\\cline{2-6}
+  & \multicolumn{2}{l|}{\sf mq} & Mapping quality (= \underline{\sf MAPQ}) & {\tt uint8\_t} & \\\cline{2-6}
+  & \multicolumn{2}{l|}{\sf l\_read\_name} & The length of {\sf read\_name} below ($={\sf length}(\underline{\sf QNAME})+1$). & {\tt uint8\_t} & \\\cline{2-6}
+  & \multicolumn{2}{l|}{\sf n\_cigar\_op} & The number of operations in \underline{\sf CIGAR}. & {\tt uint32\_t} & \\\cline{2-6}
+  & \multicolumn{2}{l|}{\sf l\_seq} & Length of \underline{\sf SEQ} & {\tt uint32\_t} & \\\cline{2-6}
+  & \multicolumn{2}{l|}{\sf next\_refID} & Ref-ID of the next segment ($-1\le{\sf mate\_refID}<{\sf n\_ref}$) & {\tt int32\_t} & [-1] \\\cline{2-6}
+  & \multicolumn{2}{l|}{\sf next\_pos} & 0-based leftmost pos of the next segment ($=\underline{\sf PNEXT}-1$) & {\tt int32\_t} & [-1] \\\cline{2-6}
+  & \multicolumn{2}{l|}{\sf tlen} & Template length ($=\underline{\sf TLEN}$) & {\tt int32\_t} & [0] \\\cline{2-6}
+  & \multicolumn{2}{l|}{\sf cigar} & CIGAR: {\tt {\sf op\_len}\char60\char60 4\char124{\sf op}}. `{\tt MIDNSHP\char61X}'$\to$`012345678' & {\tt uint32\_t[{\sf n\_cigar\_op}]} & \\\cline{2-6}
+  & \multicolumn{2}{l|}{\sf read\_name} & Read name,\footnotemark\ {\tt NUL}-terminated (\underline{\sf QNAME} plus a trailing `{\tt \char92 0}') & {\tt char[{\sf l\_read\_name}]} & \\\cline{2-6}
+  & \multicolumn{2}{l|}{\sf seq} & 4-bit encoded read: `{\tt =ACMGRSVTWYHKDBN}'$\to[0,15]$; other characters mapped to `{\tt N}'; high nybble first (1st base in the highest 4-bit of the 1st byte) & {\tt uint8\_t[({\sf l\_seq}+1)/2]} & \\\cline{2-6}
+  & \multicolumn{2}{l|}{\sf qual} & Phred base quality (a sequence of {\tt 0xFF} if absent) & {\tt char[{\sf l\_seq}]} & \\\cline{2-6}
+  & \multicolumn{5}{c|}{\textcolor{gray}{\it List of auxiliary data (until the end of the alignment block)}} \\\cline{3-6}
+  & & {\sf tag} & Two-character tag & {\tt char[2]} & \\\cline{3-6}
+  & & {\sf val\_type} & Value type: {\tt AcCsSiIfZHB}\footnotemark$^,$\footnotemark & {\tt char} & \\\cline{3-6}
+  & & {\sf value} & Tag value & (by {\sf val\_type}) &\\
+  \cline{1-6}
+\end{tabular}}
+\end{table}
+
+\addtocounter{footnote}{-4}
+\footnotetext{As {\sf refID} is signed, the maximum usable value of {\sf n\_ref} is 2$^{31}$-1.}
+\stepcounter{footnote}
+\footnotetext{As noted in Section~\ref{sec:alnrecord}, reserved {\sf FLAG} bits
+should be written as zero and ignored on reading by current software.}
+\stepcounter{footnote}
+\footnotetext{For backward compatibility, a {\sf QNAME} `{\tt *}' is stored as a C string {\tt "*\char92 0"}.}
+\stepcounter{footnote}
+\footnotetext{An integer may be stored as one of `{\tt cCsSiI}' in BAM, representing {\tt int8\_t}, {\tt uint8\_t},
+{\tt int16\_t}, {\tt uint16\_t}, {\tt int32\_t} and {\tt uint32\_t}, respectively.
+In SAM, all single (i.e., non-array) integer types are stored as `{\tt i}', regardless of magnitude.}
+\stepcounter{footnote}
+\footnotetext{A `{\tt B}'-typed (array) tag--value pair is stored as follows. The first two bytes keep the two-character tag. The 3rd byte is always `{\tt B}'.
+	The 4th byte, matching {\tt /\char94[cCsSiIf]\$/}, indicates the type of an element in the array.
+	Bytes from 5 to 8 encode a little-endian 32-bit unsigned integer which gives the number of elements in the array.
 	Bytes starting from the 9th store the array in the little-endian byte order; the number of these
 	bytes is determined by the type and the length of the array.}
 
