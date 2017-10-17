@@ -6,6 +6,7 @@
 \usepackage{enumitem}
 \usepackage{longtable}
 \usepackage{makecell}
+\usepackage{multirow}
 \usepackage[pdfborder={0 0 0},hyperfootnotes=false]{hyperref}
 \usepackage[title]{appendix}
 
@@ -38,7 +39,7 @@ fields for flexible or aligner specific information.
 
 This specification is for version 1.5 of the SAM and BAM formats.  Each SAM and
 BAM file may optionally specify the version being used via the
-{\tt @HD VN} tag. For full version history see Appendix~\ref{sec:history}. 
+{\tt @HD VN} tag. For full version history see Appendix~\ref{sec:history}.
 
 \subsection{An example}\label{sec:example}
 Suppose we have the following alignment with bases in lower cases
@@ -801,40 +802,52 @@ stream in question supports random access.}
 
 \pagebreak
 
-\subsection{The BAM format}
-BAM is compressed in the BGZF format. All multi-byte numbers in BAM are
-little-endian, regardless of the machine endianness. The format is
-formally described in the following table where values in brackets are
-the default when the corresponding information is not available; an
-underlined word in uppercase denotes a field in the SAM format.
+\subsection{The BAM format}\label{sec:bam-format}
+BAM is a binary serialisation of the information in a SAM file.
+It is compressed in the BGZF format.
+All multi-byte numbers in BAM are little-endian, regardless of the machine
+endianness.
+BAM version 2 is a modification of BAM which removes most of the length
+limitations present in the original format (see Section~\ref{sec:v2}).
 
-\begin{table}[ht]
+The format is formally described in the following table where values in
+brackets are the default when the corresponding information is not available;
+an underlined word in uppercase denotes a field in the SAM format.
+
+\begin{table}[!ht]
 \centering
 {\small
 \begin{tabular}{|l|l|l|p{8.15cm}|l|r|}
   \cline{1-6}
-  \multicolumn{3}{|c|}{\bf Field} & \multicolumn{1}{c|}{\bf Description} & \multicolumn{1}{c|}{\bf Type} & \multicolumn{1}{c|}{\bf Value} \\\cline{1-6}
-  \multicolumn{3}{|l|}{\sf magic} & BAM magic string & {\tt char[4]} & {\tt BAM\char92 1}\\\cline{1-6}
-  \multicolumn{3}{|l|}{\sf l\_text} & Length of the header text, including any {\tt NUL} padding & {\tt int32\_t} & \\\cline{1-6}
+  \multicolumn{3}{|c|}{\bf Field} & \multicolumn{1}{c|}{\bf Description} & \multicolumn{1}{c|}{\bf Type\footnotemark\ } & \multicolumn{1}{c|}{\bf Value} \\\cline{1-6}
+  \multicolumn{3}{|l|}{\multirow{2}{*}{\sf magic}} & BAM magic string (version 1) & \multirow{2}{*}{\tt char[4]} & {\tt BAM\char92 1}\\
+  \multicolumn{3}{|l|}{} & BAM magic string (version 2) & & {\tt BAM\char92 2}\\\cline{1-6}
+  \multicolumn{3}{|l|}{\multirow{2}{*}{\sf l\_text}} & \multirow{2}{*}{Length of the header text, including any {\tt NUL} padding} & {\tt int32\_t} (version 1) & \\
+  \multicolumn{3}{|l|}{} & & {\tt int32\_t + LEB128} (version 2) & \\\cline{1-6}
   \multicolumn{3}{|l|}{\sf text} & Plain header text in SAM; not necessarily {\tt NUL}-terminated & {\tt char[{\sf l\_text}]} & \\\cline{1-6}
-  \multicolumn{3}{|l|}{\sf n\_ref} & \# reference sequences & {\tt int32\_t} & \\\cline{1-6}
+  \multicolumn{3}{|l|}{\multirow{2}{*}{\sf n\_ref}} & \multirow{2}{*}{\# reference sequences} & {\tt int32\_t} (version 1) & \\
+  \multicolumn{3}{|l|}{} &  & {\tt int32\_t + LEB128} (version 2) & \\\cline{1-6}
   \multicolumn{6}{|c|}{\textcolor{gray}{\it List of reference information (n=n\_ref)}} \\\cline{2-6}
   & \multicolumn{2}{l|}{\sf l\_name} & Length of the reference name plus 1 (including {\tt NUL}) & {\tt int32\_t} & \\\cline{2-6}
   & \multicolumn{2}{l|}{\sf name} & Reference sequence name; {\tt NUL}-terminated & {\tt char[{\sf l\_name}]} & \\\cline{2-6}
-  & \multicolumn{2}{l|}{\sf l\_ref} & Length of the reference sequence & {\tt int32\_t} & \\\cline{1-6}
+  & \multicolumn{2}{l|}{\multirow{2}{*}{\sf l\_ref}} & \multirow{2}{*}{Length of the reference sequence} & {\tt int32\_t} (version 1) & \\
+  & \multicolumn{2}{l|}{} & & {\tt int32\_t + LEB128} (version 2) & \\\cline{1-6}
   \multicolumn{6}{|c|}{\textcolor{gray}{\it List of alignments (until the end of the file)}} \\\cline{2-6}
-  & \multicolumn{2}{l|}{\sf block\_size} & Length of the remainder of the alignment record & {\tt int32\_t} & \\\cline{2-6}
+  & \multicolumn{2}{l|}{\multirow{2}{*}{\sf block\_size}} & Length of the remainder of the alignment record. & {\tt int32\_t} (version 1) & \\
+  & \multicolumn{2}{l|}{} & In version 2, if bit 31 is set, extensions are present. & {\tt uint32\_t} (version 2) & \\\cline{2-6}
   & \multicolumn{2}{l|}{\sf refID} & Reference sequence ID, $-1\leq{\sf refID}<{\sf n\_ref}$; -1 for a read without a mapping position. & {\tt int32\_t} & [-1] \\\cline{2-6}
   & \multicolumn{2}{l|}{\sf pos} & 0-based leftmost coordinate ($=\underline{\sf POS}-1$)& {\tt int32\_t} & [-1]\\\cline{2-6}
   & \multicolumn{2}{l|}{\sf l\_read\_name} & Length of {\sf read\_name} below ($={\sf length}(\underline{\sf QNAME})+1$). & {\tt uint8\_t} & \\\cline{2-6}
   & \multicolumn{2}{l|}{\sf mq} & Mapping quality (=\underline{\sf MAPQ}). & {\tt uint8\_t} & \\\cline{2-6}
-  & \multicolumn{2}{l|}{\sf bin} & BAI index bin, see Section~\ref{sec:bin-field}  & {\tt uint16\_t} & \\\cline{2-6}
+  & \multicolumn{2}{l|}{\sf bin} & BAI index bin (version 1, or {\sf block\_size} bit 31 is zero) & \multirow{2}{*}{\tt uint16\_t} & \\
+  & \multicolumn{2}{l|}{\sf bam2\_flags} &  Version 2 extension flags (if {\sf block\_size} bit 31 is set) & & \\\cline{2-6}
   & \multicolumn{2}{l|}{\sf n\_cigar\_op} & Number of operations in \underline{\sf CIGAR}. & {\tt uint16\_t} & \\\cline{2-6}
   & \multicolumn{2}{l|}{\sf flag} & Bitwise flags (= \underline{\sf FLAG})\footnotemark\ & {\tt uint16\_t} & \\\cline{2-6}
   & \multicolumn{2}{l|}{\sf l\_seq} & Length of \underline{\sf SEQ} & {\tt int32\_t} & \\\cline{2-6}
   & \multicolumn{2}{l|}{\sf next\_refID} & Ref-ID of the next segment ($-1\le{\sf mate\_refID}<{\sf n\_ref}$) & {\tt int32\_t} & [-1] \\\cline{2-6}
   & \multicolumn{2}{l|}{\sf next\_pos} & 0-based leftmost pos of the next segment ($=\underline{\sf PNEXT}-1$) & {\tt int32\_t} & [-1] \\\cline{2-6}
   & \multicolumn{2}{l|}{\sf tlen} & Template length ($=\underline{\sf TLEN}$) & {\tt int32\_t} & [0] \\\cline{2-6}
+   & \multicolumn{2}{l|}{\sf bam2\_vlq} &  Variable length quantities for version 2 extended fields. Only present when {\sf block\_size} bit 31 is set. & {\tt LEB128} & \\\cline{2-6}
   & \multicolumn{2}{l|}{\sf read\_name} & Read name,\footnotemark\ {\tt NUL}-terminated (\underline{\sf QNAME} plus a trailing `{\tt \char92 0}') & {\tt char[{\sf l\_read\_name}]} & \\\cline{2-6}
   & \multicolumn{2}{l|}{\sf cigar} & CIGAR: {\tt {\sf op\_len}\char60\char60 4\char124{\sf op}}. `{\tt MIDNSHP\char61X}'$\to$`012345678' & {\tt uint32\_t[{\sf n\_cigar\_op}]} & \\\cline{2-6}
   & \multicolumn{2}{l|}{\sf seq} & 4-bit encoded read: `{\tt =ACMGRSVTWYHKDBN}'$\to[0,15]$; other characters mapped to `{\tt N}'; high nybble first (1st base in the highest 4-bit of the 1st byte) & {\tt uint8\_t[({\sf l\_seq}+1)/2]} & \\\cline{2-6}
@@ -846,7 +859,8 @@ underlined word in uppercase denotes a field in the SAM format.
   \cline{1-6}
 \end{tabular}}
 \end{table}
-\addtocounter{footnote}{-1}
+\addtocounter{footnote}{-2}
+\footnotetext{For version 2 files, array lengths {\sf l\_text}, {\sf n\_cigar\_op} and {\sf l\_seq} in this column refer to the value including any LEB128-encoded bits.}
 \footnotetext{As noted in Section~\ref{sec:alnrecord}, reserved {\sf FLAG} bits
 should be written as zero and ignored on reading by current software.}
 \stepcounter{footnote}
@@ -863,13 +877,21 @@ being length one.
 Note unmapped reads with {\sf POS} $0$ (which becomes $-1$ in BAM) therefore
 use {\sf reg2bin(-1, 0)} which is $4680$.
 
+This field was historically used by BAM file indexers.  This is no longer the
+case, but some BAM reading software does expect the correct value to be there
+so it must be set as described above.  The version 2 format reuses this field
+for its extension flags, however in records where no extensions are needed,
+version 2 writers must set the value using {\sf reg2bin()} so that the record
+matches the original BAM format.
+
 \subsubsection{Auxiliary data encoding}\label{sec:aux-type-codes}
 Optional alignment fields are stored in BAM as a two character tag followed by a single type character and then a variable-length value.
 The type encoding is similar to SAM, apart from integer values where BAM uses the type to indicate the size in bytes of the stored value (SAM always uses {\tt i}, regardless of magnitude).
 
 The type codes used in BAM, and permissible values are:
 
-\begin{center}
+\begin{table}[ht]
+\centering
 \begin{tabular}{|c|l|l|}
 \hline
 {\bf Type} & {\bf Allowed values} & {\bf Description} \\
@@ -884,14 +906,15 @@ I & 0 ... 4294967295 & Unsigned 32-bit integer \\
 f & Any valid IEEE 754-2008 binary32 value & Single-precision floating point \\
 Z & {\tt [\,\,\,!-\char126]*} & Printable string, terminated by NUL \\
 H & {\tt ([0-9A-F][0-9A-F])*} & Hexadecimal string, terminated by NUL \\
-B & Depends on subtype & Numeric array, see below \\
+B & Depends on sub-type & Numeric array, see below \\
 \hline
 \end{tabular}
-\end{center}
+\end{table}
 
 {\tt B} array type tags take the following form:
 
-\begin{center}
+\begin{table}[ht]
+\centering
 \begin{tabular}{|ll|l|}
 \hline
 {\bf Field} & & {\bf Description} \\
@@ -905,7 +928,318 @@ value & \multicolumn{1}{|l|}{sub\_type} & Array data type, matches {\tt /\char94
  & \multicolumn{1}{|l|}{array\_data} & {\tt array\_length * (size of sub\_type)} bytes \\
 \hline
 \end{tabular}
-\end{center}
+\end{table}
+
+\subsection{BAM version 2}\label{sec:v2}
+
+BAM version 2 solves several numeric limitations in the original format,
+notably the $2^{16}-1$ limit on the number of CIGAR operations, and the
+$2^{31}-1$ limit on the reference length.
+By using variable-length encoding for large integers, it removes the
+file-format imposed limits on the maximum value for a number of fields.
+It is expected that implementations of version 2 will define their own limits
+for these fields.
+In some cases, these limits may be the same as those in the original version 1
+format.
+When reading a file, if an implementation finds a value that does not fit
+within its allowed limits then it must stop and report an error.
+
+The changes to the format are designed to be as minimal as possible.
+In particular, if none of the extensions allowed by version 2 is needed, the
+resulting file will be identical to the version 1 format apart from the
+{\sf magic} string in the first four bytes.
+
+Where no extensions are needed, writing the version 1 format is preferred
+so the file is readable by legacy software that pre-dates version 2.
+Section~\ref{sec:v2-v1-compatibility} describes how files can be set to
+the best choice of format when the need for version 2 extensions is
+not known in advance.
+
+\subsubsection{LEB128 encoding}
+
+To remove file-format limitations on the size of (and so numeric
+range allowed in) certain fields, version 2 uses a form of variable-length
+encoding.
+This is based on the Little Endian Base 128 (LEB128) code used in the DWARF
+\footnote{See \url{http://dwarfstd.org/doc/Dwarf3.pdf} appendix C} debugging
+format, among other places.
+In BAM version 2, LEB128 only encodes positive values, so the unsigned
+variant is used.
+
+LEB128 converts a value into a sequence of bytes.
+Bits 0-6 of each byte contribute 7 bits to the value and bit 7 is used to
+indicate that another byte follows.
+The following pseudo-code describes how LEB128 values are encoded and decoded:
+
+\begin{verbatim}
+PROCEDURE leb128_encode(INTEGER value, BYTE STREAM output)
+  REPEAT
+    IF value > 127 THEN
+      SET byte TO 128 | (value & 127)
+    ELSE
+      SET byte TO value
+    END IF
+    APPEND byte TO output AS uint8_t
+    SET value TO value >> 7
+  UNTIL value = 0
+END PROCEDURE
+
+FUNCTION leb128_decode(BYTE STREAM input, INTEGER initial_value, INTEGER initial_shift)
+  SET value = initial_value
+  SET shift = initial_shift
+  REPEAT
+    IF END_OF_FILE(input) THEN FAIL
+    READ byte FROM input AS uint8_t
+    SET value TO value | ((byte & 127) << shift)
+    SET shift TO shift + 7
+  UNTIL (byte & 128) = 0
+  RETURN value
+END FUNCTION
+\end{verbatim}
+
+Note that LEB128 encodings are only used to extend existing fields.
+This is done by storing the actual value modulo the original field size
+(either 16 or 31 bits) in the original location and using LEB128 to store the
+remaining bits.
+
+If the field does not need to be extended (because the value fits inside the
+existing data type) then LEB128 must not be used.
+In particular, it should never be necessary to encode the value 0 using LEB128.
+
+\subsubsection{BAM2 file identification}
+
+The {\sf magic} number must be set to {\tt BAM\char92 2}.
+This allows BAM file readers that do not understand the BAM2 variant to
+immediately detect the format change and stop reading the file.
+
+\subsubsection{Extended header fields}\label{sec:v2-extended-header}
+
+The {\sf l\_text}, {\sf n\_ref} and {\sf l\_ref} header fields may be
+extended using LEB128 encoding.
+This is done as by storing the least significant 31 bits of the value in
+the existing field.
+If the value is greater than $2^{31} - 1$ then bit 31 of the field is set to
+one and {\tt (value >> 31)} is LEB128 encoded and stored in the bytes that
+immediately follow.
+
+Storing and reading the extended values is described in pseudo-code form
+below.
+
+\begin{verbatim}
+PROCEDURE store_header_field(INTEGER value, BYTE STREAM output)
+  IF value < 0x80000000 THEN
+    APPEND value TO output AS uint32_t
+  ELSE
+    APPEND 0x80000000 | (value & 0x7fffffff) TO output AS uint32_t
+    leb128_encode(value >> 31, output)
+  END IF
+END PROCEDURE
+
+FUNCTION read_header_field(BYTE STREAM input)
+  IF END_OF_FILE(input) THEN FAIL
+  READ value FROM input AS uint32_t
+  IF value > 0x7fffffff THEN
+    SET value to leb128_decode(input, value & 0x7fffffff, 31)
+  END IF
+  RETURN value
+END FUNCTION
+\end{verbatim}
+
+\subsubsection{Extended alignment record flags}\label{sec:v2-alignment-flags}
+
+The method used to store extended values in the header cannot be used
+in alignment records as a number of alignment fields are allowed to take
+the value -1, which results in the top bit being set.
+Instead a system of flags is used to describe which fields need to be extended.
+
+If any extensions are to be used then bit 31 of {\sf block\_size} is set to 1.
+This indicates that the obsolete {\sf bin} field is replaced by
+{\sf bam2\_flags}, which describes which other fields have extended values
+according to the following table.
+
+\begin{table}[!ht]
+\centering
+\begin{tabular}{|c|l|}
+\hline
+{\bf Bit} & {\bf Field to extend}\\\hline
+    0     & {\sf block\_size}    \\\hline
+    1     & {\sf refID}          \\\hline
+    2     & {\sf next\_refID}    \\\hline
+    3     & {\sf pos}            \\\hline
+    4     & {\sf next\_pos}      \\\hline
+    5     & {\sf tlen}           \\\hline
+    6     & {\sf n\_cigar\_op}   \\\hline
+    7     & {\sf l\_seq}         \\\hline
+\end{tabular}
+\end{table}
+
+Any unused bits in {\sf bam2\_flags} must be written as zero.
+Readers that find an unsupported or unused {\sf bam2\_flags} bit set to
+one must stop reading the file and report an error.
+
+If no extensions are in use then bit 31 of {\sf block\_size} must be set to
+zero, and the {\sf bin} field should be set as described in
+Section~\ref{sec:bin-field}.
+
+\subsubsection{Storage of extended values}\label{sec:v2-alignment-vals}
+
+As for the header fields, as many bits as possible are stored in the
+original field.
+This is 16 for {\sf n\_cigar\_op} and 31 for all of the rest.
+
+The remaining bits are encoded as LEB128 values and stored in the
+{\sf bam2\_vlq} section of the alignment record.
+Extended values are only stored if the corresponding bit is set in
+{\sf bam2\_flags}, and are stored in the same order as the bit
+numbering in the {\sf bam2\_flags} table.
+
+As an example, if {\tt bam2\_flags == 0x58} then {\sf bam2\_vlq} will
+contain LEB128-encoded extension values for {\sf pos}, {\sf next\_pos} and
+{\sf n\_cigar\_op} in that order.
+
+\subsubsection{Extending {\sf refID}, {\sf next\_refID}, {\sf pos} and {\sf next\_pos}}\label{sec:v2-refid-pos}
+
+{\sf refID}, {\sf next\_refID}, {\sf pos}, and {\sf next\_pos} all store
+-1 for unmapped positions.
+For these fields, values less than -1 are not valid.
+Values between -1 and ($2^{31} - 1$) inclusive are stored directly in the field.
+For values greater than ($2^{31} - 1$), the least significant 31 bits are stored
+in the field, and the rest in {\sf bam2\_vlq} using LEB128 encoding.
+
+\subsubsection{Special handling for {\sf tlen}}\label{sec:v2-tlen}
+
+{\sf tlen} is the only alignment record field that requires the full range of
+both positive and negative values.
+This means a little more care is needed if an extended value is to be stored.
+\begin{itemize}
+\item If $-2^{31} \leq {\sf tlen} < 2^{31}$ then it can be stored in the original
+field unchanged.
+\item If ${\sf tlen} \geq 2^{31}$ then {\tt tlen mod $2^{31}$} should be stored in
+the original field, and {\tt tlen / $2^{31}$} as an LEB128-encoded value in
+{\sf bam2\_vlq}.
+\item If ${\sf tlen} < -2^{31}$ then {\tt -(-tlen mod $2^{31}$) - 1} should be
+stored in the original field, and {\tt -tlen / $2^{31}$} should be stored as an
+LEB128-encoded value in {\sf bam2\_vlq}.  In this case, the value stored in the original field will always be negative.
+\end{itemize}
+
+When reading an extended value for {\sf tlen}, the sign of the original field
+should be inspected.
+\begin{itemize}
+\item If positive, {\sf tlen} is the sum of the LEB128-encoded value multiplied
+by $2^{31}$, and the data in the original field.
+\item If negative, {\sf tlen} is the sum of the LEB128-encoded value multiplied
+by $-2^{31}$, the data in the original field, and $+1$.
+\end{itemize}
+
+\subsubsection{Maximising compatibility with BAM}\label{sec:v2-v1-compatibility}
+
+Until the majority of software is upgraded to support version 2,
+it would be useful to prefer to write the version 1 BAM format if
+no extended values are needed.
+For some fields (for example reference lengths) the need for extended values
+can be determined before an output file needs to be opened.
+Unfortunately for others (notably {\sf n\_cigar\_op}) this is not always the
+case and it may only be possible to make the correct choice after all of
+the alignment records have been written.
+
+When writing to seek-able files, this problem can be avoided by rewriting
+the {\sf magic} string in the header if necessary.
+This works because BAM version 2 has been designed to make unextended
+alignment records the same as those in the version 1 format, so apart from
+the {\sf magic} string, the two versions are identical until extended values
+are used.
+
+To make the {\sf magic} string re-writable, it needs to be on its own in
+an uncompressed BGZF block.
+The exact contents of this block are for the version 1 format:
+
+\begin{verbatim}
+1f 8b 08 04 00 00 00 00  00 ff 06 00 42 43 02 00
+22 00 01 04 00 fb ff 42  41 4d 01 83 a9 d1 53 04
+00 00 00
+\end{verbatim}
+
+And for BAM version 2:
+
+\begin{verbatim}
+1f 8b 08 04 00 00 00 00  00 ff 06 00 42 43 02 00
+22 00 01 04 00 fb ff 42  41 4d 02 39 f8 d8 ca 04
+00 00 00
+\end{verbatim}
+
+Exactly which version to choose at first is beyond the scope of this
+specification, however version 1 should be preferred unless it is suspected
+that extended values may be needed.
+
+Writing then proceeds as normal, with the remainder of the header followed
+by the alignment records.
+
+If the version 1 format was used, and the writer discovers that an extended
+record is needed, then it should attempt to replace the 35 bytes at the
+beginning of the file with the BAM version 2 variant given above.
+If this fails, the writer should immediately stop and report an error.
+
+If the version 2 format was used, and the writer discovers that no extensions
+were needed, then it should attempt to replace the 35 bytes at the beginning
+of the file with the version 1 variant.
+It is not an error if this fails, as the resulting file is still valid (just
+BAM version 2 instead of version 1).
+
+\subsubsection{Changes required for version 2}
+
+A minimal BAM version 2 reader can recognise the format, but only supports
+values within the limits allowed by version 1.  The only changes to a
+version 1 reader required to support this level are:
+
+\begin{itemize}
+\item The reader should recognise the {\tt BAM\char92 2} {\sf magic} string
+\item When reading the header, the values for {\sf l\_text}, {\sf n\_ref} and
+all {\sf l\_ref} should be inspected to see if bit 31 has been set.
+If it is, the file should be rejected as unsupported.
+\item When reading alignment records, {\sf block\_size} should be inspected
+to see if bit 31 is set.  If is has, the file should be rejected as unsupported.
+\end{itemize}
+
+For this level of support, there is no need to write in version 2 format
+as all of the data will be compatible with version 1.
+
+If values outside of the version 1 limits are desired, it will be necessary
+to extend one or more fields:
+
+\begin{itemize}
+\item Readers will need the {\sf leb128\_decode()} and writers the
+{\sf leb128\_encode()} function.
+\item If {\sf l\_text}, {\sf n\_ref}, or {\sf l\_ref} need to be extended, then
+the methods described in Section~\ref{sec:v2-extended-header} will have to
+be implemented.
+\item If any of the alignment record fields {\sf block\_size}, {\sf refID},
+{\sf next\_refID}, {\sf pos}, {\sf next\_pos}, {\sf tlen}, {\sf n\_cigar\_op}
+or {\sf l\_seq} need to be extended then the alignment record flags
+described in Section~\ref{sec:v2-alignment-flags}, and the method or storing
+extended values in Section~\ref{sec:v2-alignment-vals} will be needed.
+\item Extending {\sf refID}, {\sf next\_refID}, {\sf pos}, or {\sf next\_pos}
+requires the  method described in Section~\ref{sec:v2-refid-pos} to store the
+special value -1.
+\item Extending {\sf tlen} requires the method in Section~\ref{sec:v2-tlen} to
+store unlimited signed values.
+\end{itemize}
+
+The fields that need to be extended in order to support various enhanced
+features are described in the table below.
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{|l|l|}
+\hline
+{\bf Enhancement} & {\bf Required extensions} \\\hline
+Header text of $2^{31}$ bytes or longer & {\sf l\_text} \\\hline
+Alignment blocks of $2^{31}$ bytes or longer & {\sf block\_size} \\\hline
+$2^{16}$ or more CIGAR operations & {\sf n\_cigar\_op} \\\hline
+References of $2^{31}$ bases or longer & {\sf l\_ref}, {\sf pos}, {\sf next\_pos}, {\sf tlen} \\\hline
+Sequences of $2^{31}$ bases or longer & {\sf block\_size}, {\sf l\_seq} \\\hline
+$2^{31}$ or more references & {\sf l\_text}, {\sf n\_ref}, {\sf refID}, {\sf next\_refID} \\\hline
+\end{tabular}
+\end{table}
 
 \pagebreak
 
