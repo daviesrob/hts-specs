@@ -372,12 +372,116 @@ Initial guidelines, which we expect to revise in light of future experience:
 
 The data block URL and headers might contain embedded authentication tokens; therefore, production clients and servers should not unnecessarily print them to console, write them to logs, embed them in error messages, etc.
 
+# POST requests
+
+In addition to the GET method, servers may optionally also accept POST requests.
+The main differences to the GET method are that query parameters are encoded in JSON format and it is possible to request data for more than one genomic range.
+The data returned is a JSON "ticket", as described for the GET method.
+
+Htsget POST requests must be "safe" as defined in section 4.2.1 of [RFC 7231], that is they must be essentially read-only.
+
+## URL parameters
+
+POST and GET requests should use the same URLs.
+
+## Query parameters
+
+The query parameters are similar to those used in the GET request, formatted into a JSON object.
+The `referenceName`, `start` and `end` parameters are not used for POST requests as they are replaced by `regions` which allows more that one range to be specified.
+
+<table>
+<tr markdown="block"><td>`format`  _optional string_</td><td>
+Request read data in this format. Default: BAM. Allowed values: BAM,CRAM.
+
+The server SHOULD reply with an `UnsupportedFormat` error if the requested format is not supported.
+[^a]
+</td></tr>
+<tr markdown="block"><td>`fields`  _optional array of strings_</td><td>
+List of fields to include.  See Field filtering.
+  <table>
+     <tr markdown="block"><td>Field name _string_</td></tr>
+  </table>
+</td></tr>
+<tr markdown="block"><td>`tags`  _optional array of strings_</td><td>
+List of tags to include, default: all.  If an empty array is specified, no tags are included.
+
+The server SHOULD respond with an `InvalidInput` error if `tags` and `notags` intersect.
+  <table>
+     <tr markdown="block"><td>Tag name _string_</td></tr>
+  </table>
+</td></tr>
+<tr markdown="block"><td>`notags`  _optional array of strings_</td><td>
+List of tags to exclude, default: none.  If an empty array is specified, no tags are included.
+
+The server SHOULD respond with an `InvalidInput` error if `tags` and `notags` intersect.
+  <table>
+     <tr markdown="block"><td>Tag name _string_</td></tr>
+  </table>
+</td></tr>
+<tr markdown="block"><td>`regions` _object_</td><td>
+Regions to return.  If not present, the entire file will be returned.  If an empty object or null, just the header will be returned.
+
+Each name/value pair in the object defines a reference name and the list of
+locations on that reference to return.
+
+The server SHOULD respond with an `InvalidInput` error if the region list is not well-formed.
+  <table>
+     <tr markdown="block"><td>referenceName _string_</td>
+        <td>Locations _array of two-element arrays_
+           <table>
+              <tr markdown="block"><td>
+                 <table>
+                    <tr markdown="block"><td>start _number_</td>
+                      <td>end _number or string "end"_</td></tr>
+                  </table>
+              </td></tr>
+           </table>
+        </td></tr>
+  </table>
+</td></tr>
+</table>
+
+### Example
+
+```json
+{
+   "format" : "bam",
+   "fields" : ["QNAME", "FLAG", "RNAME", "POS", "CIGAR", "SEQ"],
+   "tags" : ["RG"],
+   "notags" : ["OQ"],
+   "regions" : {
+      "chr1" : [[0, "end"]],
+      "chr2" : [[1000, 1001], [2000, 2100]]
+   }
+}
+```
+
+## Region list
+
+The `regions` parameter is an object with a key for each reference to be returned and a value which lists the desired locations on that reference.
+The location list is an array of two-element `[start, end]` arrays.
+Both elements must always be present.
+`start` must always be a number and gives the 0-based, inclusive start position.
+`end` must either be a number giving the 0-based end position, or the exact string `"end"` to indicate that the region finished at the last base of the given reference.
+The end position must be strictly greater than the start.
+To return all bases for `chr1`, the client should use the request
+`"regions" : { "chr1" : [[0, "end"]]}`.
+To return a single base, the client should use `[POS, POS+1]`, for example:
+`"regions" : { "chr1" : [[1000, 1001]]}`.
+
+If elements in the location list overlap, the returned data will be the union of the overlapping elements.
+As with the GET request, the server response may contain a super-set of the desired results.
+Clients will need to filter out any extraneous records if necessary.
+If a read overlaps more than one location in the request list, it must only be returned once.
+
+## Response
+
+The response is a JSON ticket, as described for the GET method.
 
 # Possible future enhancements
 
 * add a mechanism to request reads from more than one ID at a time (e.g. for a trio)
 * allow clients to provide a suggested data block size to the server
-* add POST support (if and when request sizes get large)
 * [mlin] add a way to request all unmapped reads (e.g. by passing `*` for `referenceName`)
 * [dglazer] add a way to request reads in GA4GH binary format [^d] (e.g. fmt=proto)
 
@@ -395,5 +499,6 @@ The data block URL and headers might contain embedded authentication tokens; the
 [RFC 5246]: https://tools.ietf.org/html/rfc5246
 [RFC 6749]: https://tools.ietf.org/html/rfc6749
 [RFC 6750]: https://tools.ietf.org/html/rfc6750
+[RFC 7231]: https://tools.ietf.org/html/rfc7231
 
 <!-- vim:set linebreak: -->
