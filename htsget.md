@@ -469,10 +469,12 @@ To return all bases for `chr1`, the client should use the request
 To return a single base, the client should use `[POS, POS+1]`, for example:
 `"regions" : { "chr1" : [[1000, 1001]]}`.
 
-If elements in the location list overlap, the returned data will be the union of the overlapping elements.
+The regions list acts as a filter on the requested file.
+Records that overlap the requested regions will be returned in the order that they occurred in the original file.
+A record will only be returned once, even if it matches more than one location in the list.
+
 As with the GET request, the server response may contain a super-set of the desired results.
 Clients will need to filter out any extraneous records if necessary.
-If a read overlaps more than one location in the request list, it must only be returned once.
 
 ## Response
 
