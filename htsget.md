@@ -459,73 +459,100 @@ POST and GET requests should use the same URLs.
 The query parameters are similar to those used in the GET request, formatted into a JSON object.
 The `referenceName`, `start` and `end` parameters are not used for POST requests as they are replaced by `regions` which allows more that one range to be specified.
 
-<table>
-<tr markdown="block"><td>`format`  _optional string_</td><td>
+<table><tbody><tr markdown="block"><td>
+
+`format`  _optional string_
+</td><td>
 Request read data in this format. Default: BAM. Allowed values: BAM,CRAM.
 
 The server SHOULD reply with an `UnsupportedFormat` error if the requested format is not supported.
-[^a]
 </td></tr>
-<tr markdown="block"><td>`fields`  _optional array of strings_</td><td>
+<tr markdown="block"><td>
+
+`fields`  _optional array of strings_
+</td><td>
+
 List of fields to include.  See Field filtering.
-  <table>
-     <tr markdown="block"><td>Field name _string_</td></tr>
-  </table>
+  <table><tbody><tr markdown="block"><td>
+
+Field name _string_
+  </td></tr></tbody></table>
 </td></tr>
-<tr markdown="block"><td>`tags`  _optional array of strings_</td><td>
+<tr markdown="block"><td>
+
+`tags`  _optional array of strings_
+</td><td>
+
 List of tags to include, default: all.  If an empty array is specified, no tags are included.
 
 The server SHOULD respond with an `InvalidInput` error if `tags` and `notags` intersect.
-  <table>
-     <tr markdown="block"><td>Tag name _string_</td></tr>
-  </table>
+  <table><tbody><tr markdown="block"><td>
+
+Tag name _string_
+  </td></tr></tbody></table>
 </td></tr>
-<tr markdown="block"><td>`notags`  _optional array of strings_</td><td>
+<tr markdown="block"><td>
+
+`notags`  _optional array of strings_
+</td><td>
+
 List of tags to exclude, default: none.  If an empty array is specified, no tags are included.
 
 The server SHOULD respond with an `InvalidInput` error if `tags` and `notags` intersect.
-  <table>
-     <tr markdown="block"><td>Tag name _string_</td></tr>
-  </table>
+  <table><tbody><tr markdown="block"><td>
+
+Tag name _string_
+  </td></tr></tbody></table>
 </td></tr>
-<tr markdown="block"><td>`regions` _optional array of objects_</td><td>
+<tr markdown="block"><td>
+
+`regions` _optional array of objects_
+</td><td>
+
 Regions to return.
+
 If not present, the entire file will be returned.
 If an empty object or null, just the header will be returned.
 Note that regions will be returned in the order that they appear in the file, which may not match the order in the list.
 Any overlapping regions will be merged.
 
 The server SHOULD respond with an `InvalidInput` error if the region list is not well-formed.
-  <table>
-     <tr markdown="block"><td>`referenceName` _string_</td>
-        <td>The reference sequence name, for example "chr1", "1", or "chrX".
+  <table><tbody><tr markdown="block"><td>
+
+`referenceName` _string_
+  </td><td>
+
+The reference sequence name, for example "chr1", "1", or "chrX".
 
 The server SHOULD respond with an `InvalidInput` error if `referenceName` is not specified.
 
 The server SHOULD reply with a `NotFound` error if the requested reference does not exist.
-        </td>
-     </tr>
-     <tr markdown="block"><td>`start` _optional unsigned integer_</td>
-        <td>The start position of the range on the reference, 0-based, inclusive.
+  </td></tr>
+  <tr markdown="block"><td>
+
+`start` _optional unsigned integer_
+  </td><td>
+
+The start position of the range on the reference, 0-based, inclusive.
 
 If not present, data will be returned starting from the first base in `referenceName`.
 
 The server SHOULD respond with an `InvalidRange` error if `start` and `end`
 are specified and `start` is greater than `end`.
-        </td>
-     </tr>
-     <tr markdown="block"><td>`end` _optional unsigned integer_</td>
-        <td>The end position of the range on the reference, 0-based exclusive.
+  </td></tr>
+  <tr markdown="block"><td>
+
+`end` _optional unsigned integer_
+  </td><td>
+
+The end position of the range on the reference, 0-based exclusive.
 
 If not present, data will be returned up to the end of the reference.
 
 The server SHOULD respond with an `InvalidRange` error if `start` and `end`
 are specified and `start` is greater than `end`.
-        </td>
-     </tr>
-  </table>
-</td></tr>
-</table>
+  </td></tr></tbody></table>
+</td></tr></tbody></table>
 
 ### Example
 
