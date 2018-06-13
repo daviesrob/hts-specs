@@ -418,25 +418,41 @@ The server SHOULD respond with an `InvalidInput` error if `tags` and `notags` in
      <tr markdown="block"><td>Tag name _string_</td></tr>
   </table>
 </td></tr>
-<tr markdown="block"><td>`regions` _object_</td><td>
-Regions to return.  If not present, the entire file will be returned.  If an empty object or null, just the header will be returned.
-
-Each name/value pair in the object defines a reference name and the list of
-locations on that reference to return.
+<tr markdown="block"><td>`regions` _optional array of objects_</td><td>
+Regions to return.
+If not present, the entire file will be returned.
+If an empty object or null, just the header will be returned.
+Note that regions will be returned in the order that they appear in the file, which may not match the order in the list.
+Any overlapping regions will be merged.
 
 The server SHOULD respond with an `InvalidInput` error if the region list is not well-formed.
   <table>
-     <tr markdown="block"><td>referenceName _string_</td>
-        <td>Locations _array of two-element arrays_
-           <table>
-              <tr markdown="block"><td>
-                 <table>
-                    <tr markdown="block"><td>start _number_</td>
-                      <td>end _number or string "end"_</td></tr>
-                  </table>
-              </td></tr>
-           </table>
-        </td></tr>
+     <tr markdown="block"><td>`referenceName` _string_</td>
+        <td>The reference sequence name, for example "chr1", "1", or "chrX".
+
+The server SHOULD respond with an `InvalidInput` error if `referenceName` is not specified.
+
+The server SHOULD reply with a `NotFound` error if the requested reference does not exist.
+        </td>
+     </tr>
+     <tr markdown="block"><td>`start` _optional unsigned integer_</td>
+        <td>The start position of the range on the reference, 0-based, inclusive.
+
+If not present, data will be returned starting from the first base in `referenceName`.
+
+The server SHOULD respond with an `InvalidRange` error if `start` and `end`
+are specified and `start` is greater than `end`.
+        </td>
+     </tr>
+     <tr markdown="block"><td>`end` _optional unsigned integer_</td>
+        <td>The end position of the range on the reference, 0-based exclusive.
+
+If not present, data will be returned up to the end of the reference.
+
+The server SHOULD respond with an `InvalidRange` error if `start` and `end`
+are specified and `start` is greater than `end`.
+        </td>
+     </tr>
   </table>
 </td></tr>
 </table>
@@ -449,28 +465,34 @@ The server SHOULD respond with an `InvalidInput` error if the region list is not
    "fields" : ["QNAME", "FLAG", "RNAME", "POS", "CIGAR", "SEQ"],
    "tags" : ["RG"],
    "notags" : ["OQ"],
-   "regions" : {
-      "chr1" : [[0, "end"]],
-      "chr2" : [[1000, 1001], [2000, 2100]]
-   }
+   "regions" : [
+      { "referenceName" : "chr1" },
+      { "referenceName" : "chr2", "start" : 1000, "end" : 1001 },
+      { "referenceName" : "chr2", "start" : 2000, "end" : 2100 }
+   ]
 }
 ```
 
 ## Region list
 
-The `regions` parameter is an object with a key for each reference to be returned and a value which lists the desired locations on that reference.
-The location list is an array of two-element `[start, end]` arrays.
-Both elements must always be present.
-`start` must always be a number and gives the 0-based, inclusive start position.
-`end` must either be a number giving the 0-based end position, or the exact string `"end"` to indicate that the region finished at the last base of the given reference.
+The `regions` parameter is an array of objects which describe the locations to be returned.
+Each location object contains a `referenceName`, which must always be present, and optional `start` and `end` tags.
+
+If `start` is not present, the region will begin at the first base in the given reference.
+
+If `end` is not present, the region will include all positions from `start` to the end of the reference.
+
 The end position must be strictly greater than the start.
+
 To return all bases for `chr1`, the client should use the request
-`"regions" : { "chr1" : [[0, "end"]]}`.
-To return a single base, the client should use `[POS, POS+1]`, for example:
-`"regions" : { "chr1" : [[1000, 1001]]}`.
+`"regions" : [ { "referenceName" : "chr1" } ]`.
+
+To return a single base, the client should use and end position one greater than the start, for example:
+`"regions" : [ { "referenceName" : "chr1", "start" : 1000, "end" : 1001 } ]`.
 
 The regions list acts as a filter on the requested file.
 Records that overlap the requested regions will be returned in the order that they occurred in the original file.
+This may not be the same as the order in the list.
 A record will only be returned once, even if it matches more than one location in the list.
 
 As with the GET request, the server response may contain a super-set of the desired results.
