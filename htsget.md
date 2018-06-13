@@ -393,7 +393,12 @@ The `referenceName`, `start` and `end` parameters are not used for POST requests
 
 `format`  _optional string_
 </td><td>
-Request read data in this format. Default: BAM. Allowed values: BAM,CRAM.
+
+Request read data in this format.
+The allowed values for each type of record are:
+
+* Reads: BAM (default), CRAM.
+* Variants: VCF (default), BCF.
 
 The server SHOULD reply with an `UnsupportedFormat` error if the requested format is not supported.
 </td></tr>
