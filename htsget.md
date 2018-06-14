@@ -517,7 +517,7 @@ Tag name _string_
 Regions to return.
 
 If not present, the entire file will be returned.
-If an empty object or null, just the header will be returned.
+When present, the array must contain at least one region specification.
 Note that regions will be returned in the order that they appear in the file, which may not match the order in the list.
 Any overlapping regions will be merged.
 
