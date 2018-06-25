@@ -12,7 +12,7 @@
 \input{crypt4gh.ver}
 \title{GA4GH File Encryption Standard}
 \author{Robert Davies}
-\date{\headdate}
+\date{\headdate
 \maketitle
 \begin{quote}\small
 The master version of this document can be found at
@@ -64,11 +64,11 @@ The encrypted version of the data.
 \item[counter (CTR) mode]~\\
 A method of using a cipher with a fixed block size to encrypt data streams that are longer than a single block,
 converting it to a pseudo-random block of bytes.
-The counter is  incremented for each block, leading to the generation of a repeatable byte stream.
+The counter is incremented for each block, leading to the generation of a repeatable byte stream.
 This stream can be XORed with the plain-text to generate the cipher-text.
 Because XOR is reversible, the same operation can also be used to convert the cipher-text back into the plain-text.
 
-CTR mode, and its use with AES, is described in \cite{CTRMODE}.
+CTR mode and its use with AES are described in \cite{CTRMODE}.
 
 \item[plain-text]~\\
 The unencrypted version of the data.
@@ -79,7 +79,7 @@ The unencrypted version of the data.
 The encrypted file consists of three parts:
 
 \begin{itemize}
-\item An unencypted header, containing a magic number, version number, and the length of the encrypted header
+\item An unencrypted header, containing a magic number, version number, and the length of the encrypted header
 
 \item An encrypted header.  This is encrypted using an asymmetric encryption algorithm.
 It lists the encryption keys and initialization vectors needed to decrypt the encrypted data section.
@@ -128,7 +128,7 @@ be\_uint128 & big-endian & unsigned & 16 \\
 
 \subsubsection{Vectors}
 A vector is a stream of elements of the same type (which may be a structure).
-The number of items may be specified either as an constant value, or in reference to a known integer value (for
+The number of items may be specified either as a constant value or in reference to a known integer value (for
 example, a variable previously read from the file).
 
 \begin{verbatim}
@@ -152,7 +152,7 @@ struct demo {
 \end{verbatim}
 
 When structures are serialized to a file, elements are written in the given order with no padding between them.
-So the structure above would be written as twenty bytes - eight for the array `string', four for the integer `number1'
+So the structure above would be written as twenty bytes - eight for the array `string', four for the integer `number1',
 and eight for the integer `number2'.
 
 \subsubsection{Enumerated Types}
@@ -190,11 +190,11 @@ struct AnimalFeatures {
 };
 \end{verbatim}
 
-For the `cat' and `dog' cases, `struct AnimalFeatures' is eight bytes long, and contains two unsigned four-byte
+For the `cat' and `dog' cases, `struct AnimalFeatures' is eight bytes long and contains two unsigned four-byte
 little-endian values.
-For the `rabbit' case it is four bytes long, and contains a single four-byte little-endian value.
+For the `rabbit' case it is four bytes long and contains a single four-byte little-endian value.
 
-If the cases are different lengths (as above) then the size of the overall structure depends on the variant chosen.
+If the cases are different lengths (as above), then the size of the overall structure depends on the variant chosen.
 There is NO padding to make the cases the same length unless it is explicitly defined.
 
 \subsection{Unencrypted Header}
@@ -239,7 +239,7 @@ struct Encrypted_header {
 
 `number\_records' gives the number of `Encryption\_parameters' records that follow.
 Each record corresponds to a range of bytes in the plain-text version of the file.
-This allows chunks of encrypted data to be rapidly concatenated together without the need to decrypt and rencrypt the
+This allows chunks of encrypted data to be rapidly concatenated together without the need to decrypt and re-encrypt the
 whole file.
 
 The `Encryption\_parameters' type is defined as:
@@ -257,7 +257,7 @@ struct Encryption_parameters {
 
   enum Encryption_method<le_uint32> method;
 
-  select (Encryption_method) {
+  select (method) {
     case AES-256-CTR:
       byte       key[32];
       be_uint128 iv;
@@ -268,7 +268,7 @@ struct Encryption_parameters {
 `plaintext\_start' and `plaintext\_end' define the range of plain-text bytes over which this record is valid.
 The positions are indexed counting from zero.
 plaintext\_end is the byte one past the end of the range.
-The value of plaintext\_end is allowed be be beyond the real end of the plain-text data.
+The value of plaintext\_end is allowed to be beyond the real end of the plain-text data.
 This means it can be set to \verb+0xffffffffffffffff+ when the final length of the file is unknown.
 
 `ciphertext\_start' is the location in the encrypted data where the given plain-text data starts.
@@ -286,7 +286,7 @@ in the plain-text.
 The union of regions over all the records does not have to cover the entire plain-text.
 This allows selective access to parts of a file to be granted.
 When preparing files, inaccessible parts SHOULD NOT be included in the cipher-text.
-It wastes the recipients storage, and readers still may be able to gain access if they are encrypted with the same key
+It wastes the recipient's storage, and readers still may be able to gain access if they are encrypted with the same key
 as other parts of the file that are permitted.
 
 `method' is an enumerated type that describes the type of encryption to be used.
@@ -309,11 +309,11 @@ In this format, the counter value C for a particular plain-text file offset P ca
 \begin{verbatim}
   C = (P + counter_offset) / 16
 \end{verbatim}
-where counter\_offset is given the the encrypted header record.
+where counter\_offset is given the encrypted header record.
 The sum (P + counter\_offset) should always be positive.
 
 The counter value is then combined with the IV by addition.
-For compatibility with OpenSSL, both C and IV are treated as 16 byte big-endian values.
+For compatibility with OpenSSL, both C and IV are treated as 16-byte big-endian values.
 
 The sum C + IV and the key are used to generate 16 bytes of key stream E:
 \begin{verbatim}
@@ -339,12 +339,12 @@ Transport Layer Security (TLS) as described in \cite{RFC5246} should be used for
 \subsection{Selection of Keys and IVs}
 The security of the format depends on attackers not being able to guess the encryption key (and to a lesser extent the
 IV).
-The encryption key MUST be generated using a cryptographically-secure psuedo-random number generator.
+The encryption key MUST be generated using a cryptographically-secure pseudo-random number generator.
 This makes the chance of guessing a key vanishingly small.
 
 When using CTR mode encryption, it is vital never to reuse an (IV + CTR) value for the same cryptographic key.
 Doing so could lead to two blocks being encrypted with identical key streams.
-If this happens then an attacker can learn the XOR of the plain-text of the two blocks by simply XORing the cipher-text
+If this happens, then an attacker can learn the XOR of the plain-text of the two blocks by simply XORing the cipher-text
 blocks (as key\_stream XOR key\_stream = 0).
 Values of (IV + CTR) MUST NOT be reused for the same key.
 This can be achieved by:
@@ -364,7 +364,7 @@ message.
 They simply XOR the cipher-text with a chosen byte stream.
 On decoding, the result will be the original plain-text XORed with the attacker's byte stream.
 
-If an attacker knows that part of an encrypted file is, for example, a gzip header then they know the plain-text bytes
+If an attacker knows that part of an encrypted file is, for example, a gzip header, then they know the plain-text bytes
 and can replace that part with any data they choose.
 
 This format is currently not resistant to forgery.
