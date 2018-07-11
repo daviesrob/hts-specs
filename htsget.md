@@ -521,7 +521,7 @@ When present, the array must contain at least one region specification.
 Note that regions will be returned in the order that they appear in the file, which may not match the order in the list.
 Any overlapping regions will be merged.
 
-The server SHOULD respond with an `InvalidInput` error if the region list is not well-formed.
+The server SHOULD respond with an `InvalidInput` error if the region list is empty or not well-formed.
   <table><tbody><tr markdown="block"><td>
 
 `referenceName` _string_
@@ -543,7 +543,7 @@ The start position of the range on the reference, 0-based, inclusive.
 If not present, data will be returned starting from the first base in `referenceName`.
 
 The server SHOULD respond with an `InvalidRange` error if `start` and `end`
-are specified and `start` is greater than `end`.
+are specified and `start` is greater than or equal to `end`.
   </td></tr>
   <tr markdown="block"><td>
 
@@ -569,7 +569,7 @@ are specified and `start` is greater than `end`.
    "notags" : ["OQ"],
    "regions" : [
       { "referenceName" : "chr1" },
-      { "referenceName" : "chr2", "start" : 1000, "end" : 1001 },
+      { "referenceName" : "chr2", "start" : 999, "end" : 1000 },
       { "referenceName" : "chr2", "start" : 2000, "end" : 2100 }
    ]
 }
@@ -580,17 +580,9 @@ are specified and `start` is greater than `end`.
 The `regions` parameter is an array of objects which describe the locations to be returned.
 Each location object contains a `referenceName`, which must always be present, and optional `start` and `end` tags.
 
-If `start` is not present, the region will begin at the first base in the given reference.
+The first region in the example above shows how to return all reads for reference "chr1".
 
-If `end` is not present, the region will include all positions from `start` to the end of the reference.
-
-The end position must be strictly greater than the start.
-
-To return all bases for `chr1`, the client should use the request
-`"regions" : [ { "referenceName" : "chr1" } ]`.
-
-To return a single base, the client should use and end position one greater than the start, for example:
-`"regions" : [ { "referenceName" : "chr1", "start" : 1000, "end" : 1001 } ]`.
+To return reads covering a single base, the client should use an end position one greater than the start, as shown in the second region in the example which requests the 1000th base of reference "chr2".
 
 The regions list acts as a filter on the requested file.
 Records that overlap the requested regions will be returned in the order that they occurred in the original file.
