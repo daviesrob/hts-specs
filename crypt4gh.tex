@@ -1,0 +1,386 @@
+% GA4GH File Encryption Standard specification
+% When editing, please start all sentences on a new line; and try to avoid source lines longer than 120 characters.
+\documentclass[10pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage[pdfborder={0 0 0},hyperfootnotes=false]{hyperref}
+\usepackage{parskip}
+\newcommand{\mailtourl}[1]{\href{mailto:#1}{\tt #1}}
+\newcommand{\tagvalue}[1]{\tt #1}
+\newcommand{\tagregex}[1]{\tt #1}
+\begin{document}
+
+\input{crypt4gh.ver}
+\title{GA4GH File Encryption Standard}
+\date{\headdate}
+\maketitle
+\begin{quote}\small
+The master version of this document can be found at
+\url{https://github.com/samtools/hts-specs}.\\
+This printing is version~\commitdesc\ from that repository,
+last modified on the date shown above.
+\end{quote}
+\vspace*{1em}
+
+\begin{abstract}
+This document describes the format for Global Alliance for Genomics and Health (GA4GH) encrypted and authenticated
+files.
+Encryption helps to prevent accidental disclosure of confidential information.
+Allowing programs to directly read and write data in an encrypted format reduces the chance of such disclosure.
+The format described here can be used to encrypt any underlying file format.
+It also allows for seeking on the encrypted data.
+In particular indexes on the plain text version can also be used on the encrypted file without modification.
+\end{abstract}
+\newpage
+\tableofcontents
+\newpage
+\section{Introduction}
+\subsection{Purpose}
+By its nature, genomic data can include information of a confidential nature about the health of individuals.
+It is important that such information is not accidentally disclosed.
+One part of the defence against such disclosure is to, as much as possible, keep the data in an encrypted format.
+
+This document describes a file format that can be used to store data in an encrypted and authenticated state.
+Existing applications can, with minimal modification, read and write data in the encrypted format.
+The choice of encryption also allows the encrypted data to be read starting from any location, facilitating indexed
+access to files.
+
+\subsection{Requirements}
+The key words ``MUST'', ``MUST NOT'', ``REQUIRED'', ``SHALL'', ``SHALL NOT'', ``SHOULD'', ``SHOULD NOT'',
+``RECOMMENDED'', ``MAY'', and ``OPTIONAL'' in this document are to be interpreted as described in \cite{RFC2119}.
+
+\subsection{Terminology}
+\begin{description}
+\item[Elliptic-curve cryptography (ECC)]
+An approach to public-key cryptography based on the algebraic structure of elliptic curves over finite fields.
+\item[Curve25519]
+A widely used FIPS-140 approved ECC algorithm not encumbered by any patents \cite{RFC7748}. 
+\item[Ed25519]
+An Edwards-curve Digital Signature Algorithm (EdDSA) over Curve25519 \cite{RFC8032}.
+\item[ChaCha20-ietf-Poly1305]
+ChaCha20 is a symmetric stream cipher built on a pseudo-random function that gives the advantage that one can 
+efficiently seek to any position in the key stream in constant time.
+It is not patented.
+Poly1305 is a cryptographic message authentication code (MAC).
+It can be used to verify the data integrity and the authenticity of a message \cite{RFC8439}.
+
+\item[cipher-text]~\\
+The encrypted version of the data.
+
+\item[plain-text]~\\
+The unencrypted version of the data.
+ 
+\end{description}
+
+\section{Encrypted Representation Overview}
+The encrypted file consists of four parts:
+
+\begin{itemize}
+\item An unencrypted header, containing a magic number, version number, length of public key 
+(may be zero), public key, a header signature indicator, and the length of the encrypted header.
+
+\item An encrypted header, which is encrypted using an asymmetric encryption algorithm.
+It lists the encryption key and nonce needed to decrypt the encrypted data section.
+
+\item A 64-byte Ed25519 signature validating the encrypted header.
+
+\item The encrypted data.
+This is the actual application data.
+It is encrypted using a symmetric encryption algorithm as described in the encrypted header.
+The data is encrypted in 64K segments with a 16 byte MAC appended at the end of each segment.
+\end{itemize}
+
+\section{Detailed Specification}
+\subsection{Overall Conventions}
+\subsubsection{Hexadecimal Numbers}
+Hexadecimal values are written using the digits 0-9, and letters a-f for values 10-15.
+Values are written with the most-significant digit on the left, and prefixed with "0x".
+
+\subsubsection{Byte Ordering}
+The basic data size is the byte (8 bits).
+Multi-byte values need to be stored in a defined order.
+This order will be one of the following:
+\begin{description}
+\item[Least-significant byte first (``little-endian'')]~\\
+The value 1234 decimal (0x4d2) is stored as the byte stream 0xd2 0x04.
+
+\item[Most-significant byte first (``big-endian'')]~\\
+The value 1234 decimal (0x4d2) is stored as the byte stream 0x04 0xd2.
+\end{description}
+
+\subsubsection{Integer Types}
+Integers can be either signed or unsigned.
+Signed values are stored in two's complement form.
+
+\subsubsection{Multi-byte Integer Types}
+\begin{center}
+\begin{tabular}{l l l l}
+\hline
+\textbf{Name} & \textbf{Byte Ordering} & \textbf{Integer Type} & \textbf{Size (bytes)} \\
+\hline
+byte & & unsigned & 1 \\
+le\_int32 & little-endian & signed & 4 \\
+le\_uint32 & little-endian & unsigned & 4 \\
+le\_int64 & little-endian & signed & 8 \\
+le\_uint64 & little-endian & unsigned & 8 \\
+be\_uint128 & big-endian & unsigned & 16 \\
+\end{tabular}
+\end{center}
+
+\subsubsection{Vectors}
+A vector is a stream of elements of the same type (which may be a structure).
+The number of items may be specified either as a constant value or in reference to a known integer value (for
+example, a variable previously read from the file).
+
+\begin{verbatim}
+le_in32   num     // Number of v2 array elements
+le_int32  v1[8]   // Eight four-byte little-endian integers
+le_int64  v2[num] // 'num' eight-byte little-endian integers
+\end{verbatim}
+
+When vectors are serialized to a file, the elements are written with no padding between them.
+
+\subsubsection{Structures}
+Structure types may be defined for convenience.
+The syntax for definition is similar to that of C.
+
+\begin{verbatim}
+struct demo {
+  byte string[8];
+  le_int32 number1;
+  le_uint64 number2;
+};
+\end{verbatim}
+
+When structures are serialized to a file, elements are written in the given order with no padding between them.
+So the structure above would be written as twenty bytes - eight for the array `string', four for the integer `number1',
+and eight for the integer `number2'.
+
+\subsubsection{Enumerated Types}
+Enumerated types may only take one of a given set of values.
+The data type used to store the enumerated value is given in angle brackets after the type name.
+Every element of an enumerated type must be assigned a value.
+It is not valid to compare values between two enumerated types.
+
+\begin{verbatim}
+enum Animal<le_uint32> {
+  cat    = 1;
+  dog    = 2;
+  rabbit = 3;
+};
+\end{verbatim}
+
+\subsubsection{Variants}
+Parts of structures may vary depending on information available at the time of decoding.
+Which variant to use is selected by an enumerated type.
+There must be a case for every possible enumerated value.
+Cases have limited fall-through.
+Consecutive cases with no fields in between all contain the same fields.
+
+\begin{verbatim}
+struct AnimalFeatures {
+  select (enum Animal) {
+    case cat:
+    case dog:
+      le_uint32 hairyness;
+      le_uint32 whisker_length;
+
+    case rabbit:
+      le_uint32 ear_length;
+  };
+};
+\end{verbatim}
+
+For the `cat' and `dog' cases, `struct AnimalFeatures' is eight bytes long and contains two unsigned four-byte
+little-endian values.
+For the `rabbit' case it is four bytes long and contains a single four-byte little-endian value.
+
+If the cases are different lengths (as above), then the size of the overall structure depends on the variant chosen.
+There is NO padding to make the cases the same length unless it is explicitly defined.
+
+\subsection{Unencrypted Header}
+
+The file starts with an unencrypted header, with the following structure:
+
+\begin{verbatim}
+struct Unencrypted_header {
+  byte      magic_number[8];
+  le_uint32 version;
+  le_uint32 public_key_length;
+  byte      public_key[public_key_length];
+  le_uint32 header_len;
+};
+\end{verbatim}
+
+The magic\_number is the ASCII representation of the string ``crypt4gh''.
+
+The version number is stored as a four-byte little-endian unsigned integer.
+The current version number is 1.
+
+The public key length may be zero.
+If it is greater than zero then it is the length of the public key component of the private key used to sign the
+header (this is not the same as the public key used to encrypt the header).
+
+hdr\_len is the sum of the lengths of the unencrypted and encrypted headers.
+If a public key is specified then it also includes the 64-byte header signature field appended to the encrypted header.
+It is stored as a four-byte little-endian unsigned integer.
+As it includes the unencrypted header, hdr\_len will always have a value of at least 16.
+
+The current byte representation of the magic number and version is:
+\begin{verbatim}
+0x63 0x72 0x79 0x70 0x74 0x34 0x67 0x68 0x01 0x00 0x00 0x00
+============= magic_number============= ===== version =====
+\end{verbatim}
+
+Possible header configurations:
+
+If no public key is specified:
+\begin{verbatim}
+[magic number][version][0][header len][encrypted header]
+\end{verbatim}
+
+If a public key is specified:
+\begin{verbatim}
+[magic number][version][pub key len][public key][header len][encrypted header][header signature]
+\end{verbatim}
+
+\subsection{Encrypted Header}
+\subsubsection{Encryption Method}
+The encrypted header is encoded in the Curve25519 message format \cite{RFC7748}.
+
+\subsubsection{Header Signature}
+The header signature is generated using the Ed25519 algorithm \cite{RFC8032}.
+
+\subsubsection{Plain-text Format}
+The plain-text data encoded in the encrypted header has the following overall structure:
+
+The `Encryption\_parameters' type is defined as:
+
+\begin{verbatim}
+enum Encryption_method<le_uint32> {
+  chacha20_ietf_poly1305 = 0;
+};
+
+struct Encryption_parameters {
+  byte	checksum[32];
+  enum Encryption_method<le_uint32> method;
+
+  select (method) {
+    case chacha20_ietf_poly1305:
+      byte       key[32];
+      be_uint128 nonce;
+  };
+};
+\end{verbatim}
+
+`checksum' is an optional 32-byte SHA-256 checksum of the (unencrypted) data in the file.
+
+`method' is an enumerated type that describes the type of encryption to be used.
+
+`key' is a secret encryption key.
+Treated as a concatenation of eight 32-bit little-endian integers.
+
+`nonce' is a unique initialization vector.
+In IETF version it is 12 bytes long and if combined with a 4 byte counter to produce a 16 byte initialization
+vector (IV).
+
+\subsection{Encrypted Data}
+\subsubsection{ChaCha20 Mode Encryption}
+
+Internally, ChaCha20 works like a block cipher used in counter mode.
+It includes an internal block counter to avoid incrementing the nonce after each block.
+The cipher-text is the message combined with the output of the stream cipher using the XOR operation, 
+and doesn't include any authentication tag.
+In IETF mode the nonce is 96 bits long and the counter is 32 bits long.
+
+ChaCha20-Poly1305 uses ChaCha20 to encrypt a message and uses the Poly1305 algorithm to
+generate a 16-byte MAC over the encrypted data, which is appended at the end of the 
+cipher-text.
+The MAC is generated for the whole cipher-text that is provided.
+It is not possible to authenticate partially decrypted data.
+
+While it is possible to decrypt individual blocks in ChaCha20, to authenticate the content 
+it is necessary to decrypt the entire cipher-text,  with the authentication tag at the end. 
+To retain streaming and random access capabilities it is necessary to ensure that segments 
+of the data can be authenticated, without having to read and process the whole file.
+In this format the cipher-text is divided into 64K segments.
+A MAC is generated for each segment individually and appended to each 64K block of cipher-text.
+
+A dual counter method is used, where the nonce is incremented for each 64K segment, and
+the counter is incremented within each segment, producing a unique IV (nonce+counter) for 
+each cipher block even if the cipher-text is very large. 
+
+The cipher-text is decrypted by authenticating and decrypting the segment(s) enclosing
+the requested byte range. 
+
+Implementation details for ChaCha20-ietf-Poly1305are described in \cite{RFC8439}.
+
+\subsubsection{Partial Blocks and Segments}
+It is likely that the end of the file will not occur at an exact multiple of the cipher block or 
+64K segment length.
+In such cases, a block or segment must be padded to enable calculation of the authentication tag. 
+Extra care must be taken to prevent a padding oracle attack (\url{https://en.wikipedia.org/wiki/Padding_oracle_attack}).
+
+\section{Security Considerations}
+\subsection{Threat Model}
+This format is designed to protect files at rest and in transport from accidental disclosure.
+Using authenticated encryption in individual segments mirrors solutions like Transport Layer 
+Security (TLS) as described in \cite{RFC5246} and prevent undetected modification of segments.
+
+\subsection{Selection of Key and Nonce}
+The security of the format depends on attackers not being able to guess the encryption key (and to a lesser extent 
+the nonce).
+The encryption key MUST be generated using a cryptographically-secure pseudo-random number generator.
+This makes the chance of guessing a key vanishingly small.
+Additional security can be provided by using `Associated Data' when encrypting a file.
+This data must be used to decrypt the data, although it is not part of the encrypted file
+\cite{RFC8439}.
+
+\subsection{Message Forgery}
+Using Curve25519 and Ed25519 authenticates the content of the encrypted file header.
+Using ChaCha20-ietf-Poly1305 authenticates the content of each segment of the encrypted cipher-text. 
+
+\subsection{No File Updates Permitted}
+Implementations MUST NOT update encrypted files.
+Once written, a section of the file must never be altered.
+
+\section{References}
+
+\begin{thebibliography}{XXXXXXX}
+
+% Normative references
+
+\bibitem[RFC2119]{RFC2119}
+  Bradner, S.,\\
+  \emph{"Key words for use in RFCs to Indicate Requirement Levels", BCP 14, RFC 2119},\\
+  \url{https://www.rfc-editor.org/info/rfc2119},\\
+  March 1997.
+
+\bibitem[RFC7748]{RFC7748}
+  A. Langley, Google, M. Hamburg, Rambus Cryptography Research, S. Turner, sn3rd,\\
+  \emph{"Elliptic Curves for Security", RFC7748},\\
+  \url{https://tools.ietf.org/html/rfc7748},\\
+  January 2016
+
+\bibitem[RFC8032]{RFC8032}
+  S. Josefsson, SJD AB, I. Liusvaara,\\
+  \emph{"Edwards-Curve Digital Signature Algorithm (EdDSA)", RFC8032},\\
+  \url{https://tools.ietf.org/html/rfc8032},\\
+  January 2017
+
+\bibitem[RFC8439]{RFC8439}
+  Y. Nir, Dell EMC, A. Langley, Google, Inc.,\\
+  \emph{"ChaCha20 and Poly1305 for IETF Protocols", RFC8439},\\
+  \url{https://tools.ietf.org/html/rfc8439},\\
+  June 2018
+
+% Informational references
+
+\bibitem[RFC5246]{RFC5246}
+  Dierks, T., Rescorla, E.,\\
+  \emph{"The Transport Layer Security (TLS) Protocol Version 1.2", RFC 5246},\\
+  \url{https://www.rfc-editor.org/info/rfc5246},\\
+  August 2008.
+
+\end{thebibliography}
+
+\end{document}
