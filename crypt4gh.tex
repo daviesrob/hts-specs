@@ -53,11 +53,11 @@ The key words ``MUST'', ``MUST NOT'', ``REQUIRED'', ``SHALL'', ``SHALL NOT'', ``
 \item[Elliptic-curve cryptography (ECC)]
 An approach to public-key cryptography based on the algebraic structure of elliptic curves over finite fields.
 \item[Curve25519]
-A widely used FIPS-140 approved ECC algorithm not encumbered by any patents \cite{RFC7748}. 
+A widely used FIPS-140 approved ECC algorithm not encumbered by any patents \cite{RFC7748}.
 \item[Ed25519]
 An Edwards-curve Digital Signature Algorithm (EdDSA) over Curve25519 \cite{RFC8032}.
 \item[ChaCha20-ietf-Poly1305]
-ChaCha20 is a symmetric stream cipher built on a pseudo-random function that gives the advantage that one can 
+ChaCha20 is a symmetric stream cipher built on a pseudo-random function that gives the advantage that one can
 efficiently seek to any position in the key stream in constant time.
 It is not patented.
 Poly1305 is a cryptographic message authentication code (MAC).
@@ -68,14 +68,14 @@ The encrypted version of the data.
 
 \item[plain-text]~\\
 The unencrypted version of the data.
- 
+
 \end{description}
 
 \section{Encrypted Representation Overview}
 The encrypted file consists of four parts:
 
 \begin{itemize}
-\item An unencrypted header, containing a magic number, version number, length of public key 
+\item An unencrypted header, containing a magic number, version number, length of public key
 (may be zero), public key, a header signature indicator, and the length of the encrypted header.
 
 \item An encrypted header, which is encrypted using an asymmetric encryption algorithm.
@@ -97,15 +97,8 @@ Values are written with the most-significant digit on the left, and prefixed wit
 
 \subsubsection{Byte Ordering}
 The basic data size is the byte (8 bits).
-Multi-byte values need to be stored in a defined order.
-This order will be one of the following:
-\begin{description}
-\item[Least-significant byte first (``little-endian'')]~\\
-The value 1234 decimal (0x4d2) is stored as the byte stream 0xd2 0x04.
-
-\item[Most-significant byte first (``big-endian'')]~\\
-The value 1234 decimal (0x4d2) is stored as the byte stream 0x04 0xd2.
-\end{description}
+All multi-byte vales are stored in least-significant byte first (``little-endian'') order.
+For example, the value 1234 decimal (0x4d2) is stored as the byte stream 0xd2 0x04.
 
 \subsubsection{Integer Types}
 Integers can be either signed or unsigned.
@@ -122,7 +115,7 @@ le\_int32 & little-endian & signed & 4 \\
 le\_uint32 & little-endian & unsigned & 4 \\
 le\_int64 & little-endian & signed & 8 \\
 le\_uint64 & little-endian & unsigned & 8 \\
-be\_uint128 & big-endian & unsigned & 16 \\
+le\_uint96 & little-endian & unsigned & 12 \\
 \end{tabular}
 \end{center}
 
@@ -220,10 +213,10 @@ The public key length may be zero.
 If it is greater than zero then it is the length of the public key component of the private key used to sign the
 header (this is not the same as the public key used to encrypt the header).
 
-hdr\_len is the sum of the lengths of the unencrypted and encrypted headers.
+header\_len is the sum of the lengths of the unencrypted and encrypted headers.
 If a public key is specified then it also includes the 64-byte header signature field appended to the encrypted header.
 It is stored as a four-byte little-endian unsigned integer.
-As it includes the unencrypted header, hdr\_len will always have a value of at least 16.
+As it includes the unencrypted header, header\_len will always have a value of at least 16.
 
 The current byte representation of the magic number and version is:
 \begin{verbatim}
@@ -266,8 +259,8 @@ struct Encryption_parameters {
 
   select (method) {
     case chacha20_ietf_poly1305:
-      byte       key[32];
-      be_uint128 nonce;
+      byte      key[32];
+      le_uint96 nonce;
   };
 };
 \end{verbatim}
@@ -280,56 +273,80 @@ struct Encryption_parameters {
 Treated as a concatenation of eight 32-bit little-endian integers.
 
 `nonce' is a unique initialization vector.
-In IETF version it is 12 bytes long and if combined with a 4 byte counter to produce a 16 byte initialization
-vector (IV).
+In chacha20\_ietf\_poly1305 it is 12 bytes long.
 
 \subsection{Encrypted Data}
 \subsubsection{ChaCha20 Mode Encryption}
 
 Internally, ChaCha20 works like a block cipher used in counter mode.
 It includes an internal block counter to avoid incrementing the nonce after each block.
-The cipher-text is the message combined with the output of the stream cipher using the XOR operation, 
+The cipher-text is the message combined with the output of the stream cipher using the XOR operation,
 and doesn't include any authentication tag.
 In IETF mode the nonce is 96 bits long and the counter is 32 bits long.
 
 ChaCha20-Poly1305 uses ChaCha20 to encrypt a message and uses the Poly1305 algorithm to
-generate a 16-byte MAC over the encrypted data, which is appended at the end of the 
+generate a 16-byte MAC over the encrypted data, which is appended at the end of the
 cipher-text.
 The MAC is generated for the whole cipher-text that is provided.
 It is not possible to authenticate partially decrypted data.
 
-While it is possible to decrypt individual blocks in ChaCha20, to authenticate the content 
-it is necessary to decrypt the entire cipher-text,  with the authentication tag at the end. 
-To retain streaming and random access capabilities it is necessary to ensure that segments 
+While it is possible to decrypt individual blocks in ChaCha20, to authenticate the content
+it is necessary to decrypt the entire cipher-text,  with the authentication tag at the end.
+To retain streaming and random access capabilities it is necessary to ensure that segments
 of the data can be authenticated, without having to read and process the whole file.
-In this format the cipher-text is divided into 64K segments.
-A MAC is generated for each segment individually and appended to each 64K block of cipher-text.
+In this format the plain-text is divided into 64KiB segments and encrypted to 64KiB of cipher-text.
+A MAC is generated for each encrypted segment individually and appended to each 64KiB block of cipher-text.
+This expands the data by 16 bytes, so a 65536 byte plain-text input will become a 65552 byte encrypted
+and authenticated output.
 
-A dual counter method is used, where the nonce is incremented for each 64K segment, and
-the counter is incremented within each segment, producing a unique IV (nonce+counter) for 
-each cipher block even if the cipher-text is very large. 
+A dual counter method is used, where the nonce is incremented after each 64K segment, and
+the counter is incremented within each segment, producing a unique IV (nonce+counter) for
+each cipher block even if the input is very large.
+The initial value used for the counter when encrypting each 64KiB block is 1.
 
 The cipher-text is decrypted by authenticating and decrypting the segment(s) enclosing
-the requested byte range. 
+the requested byte range.
+To decrypt starting from a plain-text position P, first the location of the segment containing that position
+must be found.
+
+\begin{verbatim}
+seg_start = header_len + floor(P/65536) * 65552
+\end{verbatim}
+
+The 65552 bytes (possibly fewer at the end of the file) starting at this position are read to obtain the encrypted
+data and 16 byte MAC.
+Next the nonce for the segment is calculated.
+
+\begin{verbatim}
+seg_nonce = nonce + floor(P/65536)
+\end{verbatim}
+
+The key, nonce, encrypted data and MAC are then used to obtain the plain text.
+Finally (P mod 65536) bytes at the start are discarded from the plain text to give the desired output.
 
 Implementation details for ChaCha20-ietf-Poly1305are described in \cite{RFC8439}.
 
-\subsubsection{Partial Blocks and Segments}
-It is likely that the end of the file will not occur at an exact multiple of the cipher block or 
+\subsubsection{Partial Segments}
+It is likely that the end of the file will not occur at an exact multiple of the cipher block or
 64K segment length.
-In such cases, a block or segment must be padded to enable calculation of the authentication tag. 
-Extra care must be taken to prevent a padding oracle attack (\url{https://en.wikipedia.org/wiki/Padding_oracle_attack}).
+In such cases the short block will be encrypted in the way described above, apart from the block size will
+now be the number of remaining bytes.
+This will produce an encrypted output which will be exactly 16 bytes longer than the input.
+
+If the last block is found to be shorter than 65552 bytes on reading, the last 16 bytes should be taken as
+the MAC, and the remaining bytes as the short block to decrypt.
+If the last block is found to be shorter than 16 bytes the file is corrupt and an error should be reported.
 
 \section{Security Considerations}
 \subsection{Threat Model}
 This format is designed to protect files at rest and in transport from accidental disclosure.
-Using authenticated encryption in individual segments mirrors solutions like Transport Layer 
+Using authenticated encryption in individual segments mirrors solutions like Transport Layer
 Security (TLS) as described in \cite{RFC5246} and prevent undetected modification of segments.
 
 \subsection{Selection of Key and Nonce}
-The security of the format depends on attackers not being able to guess the encryption key (and to a lesser extent 
+The security of the format depends on attackers not being able to guess the encryption key (and to a lesser extent
 the nonce).
-The encryption key MUST be generated using a cryptographically-secure pseudo-random number generator.
+The encryption key and nonce MUST be generated using a cryptographically-secure pseudo-random number generator.
 This makes the chance of guessing a key vanishingly small.
 Additional security can be provided by using `Associated Data' when encrypting a file.
 This data must be used to decrypt the data, although it is not part of the encrypted file
@@ -337,7 +354,7 @@ This data must be used to decrypt the data, although it is not part of the encry
 
 \subsection{Message Forgery}
 Using Curve25519 and Ed25519 authenticates the content of the encrypted file header.
-Using ChaCha20-ietf-Poly1305 authenticates the content of each segment of the encrypted cipher-text. 
+Using ChaCha20-ietf-Poly1305 authenticates the content of each segment of the encrypted cipher-text.
 
 \subsection{No File Updates Permitted}
 Implementations MUST NOT update encrypted files.
