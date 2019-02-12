@@ -8,6 +8,7 @@
 \newcommand{\mailtourl}[1]{\href{mailto:#1}{\tt #1}}
 \newcommand{\tagvalue}[1]{\tt #1}
 \newcommand{\tagregex}[1]{\tt #1}
+\newcommand{\kw}[1]{\texttt{#1}}
 
 \SetWatermarkAngle{315}
 \SetWatermarkText{PRELIMINARY}
@@ -62,7 +63,7 @@ An approach to public-key cryptography based on the algebraic structure of ellip
 A widely used FIPS-140 approved ECC algorithm not encumbered by any patents \cite{RFC7748}.
 \item[Ed25519]
 An Edwards-curve Digital Signature Algorithm (EdDSA) over Curve25519 \cite{RFC8032}.
-\item[ChaCha20-ietf-Poly1305]
+\item[ChaCha20-IETF-Poly1305]
 ChaCha20 is a symmetric stream cipher built on a pseudo-random function that gives the advantage that one can
 efficiently seek to any position in the key stream in constant time.
 It is not patented.
@@ -78,21 +79,18 @@ The unencrypted version of the data.
 \end{description}
 
 \section{Encrypted Representation Overview}
-The encrypted file consists of four parts:
+The encrypted file consists of three parts:
 
 \begin{itemize}
-\item An unencrypted header, containing a magic number, version number, length of public key
-(may be zero), public key, a header signature indicator, and the length of the encrypted header.
+\item An unencrypted header, containing a magic number, version number, and parameters needed to decode the encrypted
+header.
 
 \item An encrypted header, which is encrypted using an asymmetric encryption algorithm.
-It lists the encryption key and nonce needed to decrypt the encrypted data section.
-
-\item A 64-byte Ed25519 signature validating the encrypted header.
+It lists the encryption key and other parameters needed to decrypt the encrypted data section.
 
 \item The encrypted data.
 This is the actual application data.
 It is encrypted using a symmetric encryption algorithm as described in the encrypted header.
-The data is encrypted in 64K segments with a 16 byte MAC appended at the end of each segment.
 \end{itemize}
 
 \section{Detailed Specification}
@@ -125,22 +123,8 @@ le\_uint96 & little-endian & unsigned & 12 \\
 \end{tabular}
 \end{center}
 
-\subsubsection{Vectors}
-A vector is a stream of elements of the same type (which may be a structure).
-The number of items may be specified either as a constant value or in reference to a known integer value (for
-example, a variable previously read from the file).
-
-\begin{verbatim}
-le_in32   num     // Number of v2 array elements
-le_int32  v1[8]   // Eight four-byte little-endian integers
-le_int64  v2[num] // 'num' eight-byte little-endian integers
-\end{verbatim}
-
-When vectors are serialized to a file, the elements are written with no padding between them.
-
 \subsubsection{Structures}
-Structure types may be defined for convenience.
-The syntax for definition is similar to that of C.
+Structure types may be defined (in C-like notation) for convenience.
 
 \begin{verbatim}
 struct demo {
@@ -151,7 +135,7 @@ struct demo {
 \end{verbatim}
 
 When structures are serialized to a file, elements are written in the given order with no padding between them.
-So the structure above would be written as twenty bytes - eight for the array `string', four for the integer `number1',
+The above structure would be written as twenty bytes - eight for the array `string', four for the integer `number1',
 and eight for the integer `number2'.
 
 \subsubsection{Enumerated Types}
@@ -196,33 +180,24 @@ For the `rabbit' case it is four bytes long and contains a single four-byte litt
 If the cases are different lengths (as above), then the size of the overall structure depends on the variant chosen.
 There is NO padding to make the cases the same length unless it is explicitly defined.
 
-\subsection{Unencrypted Header}
+\subsection{Header}
 
-The file starts with an unencrypted header, with the following structure:
+The file starts with an header, with the following structure:
 
 \begin{verbatim}
-struct Unencrypted_header {
-  byte      magic_number[8];
-  le_uint32 version;
-  le_uint32 public_key_length;
-  byte      public_key[public_key_length];
-  le_uint32 header_len;
+struct Header {
+  byte                          magic_number[8];
+  le_uint32                     version;
+  le_uint32                     header_length;
+  Header_encryption_parameters  header_encryption;
+  byte[]                        encrypted_header
 };
 \end{verbatim}
 
-The magic\_number is the ASCII representation of the string ``crypt4gh''.
+The \kw{magic\_number} is the ASCII representation of the string ``crypt4gh''.
 
 The version number is stored as a four-byte little-endian unsigned integer.
 The current version number is 1.
-
-The public key length may be zero.
-If it is greater than zero then it is the length of the public key component of the private key used to sign the
-header (this is not the same as the public key used to encrypt the header).
-
-header\_len is the sum of the lengths of the unencrypted and encrypted headers.
-If a public key is specified then it also includes the 64-byte header signature field appended to the encrypted header.
-It is stored as a four-byte little-endian unsigned integer.
-As it includes the unencrypted header, header\_len will always have a value of at least 16.
 
 The current byte representation of the magic number and version is:
 \begin{verbatim}
@@ -230,133 +205,188 @@ The current byte representation of the magic number and version is:
 ============= magic_number============= ===== version =====
 \end{verbatim}
 
-Possible header configurations:
+\kw{header\_length} is the combined length of the \kw{header\_encryption} and \kw{encrypted\_header} sections.
 
-If no public key is specified:
-\begin{verbatim}
-[magic number][version][0][header len][encrypted header]
-\end{verbatim}
+\subsubsection{Header Encryption Parameters}\label{header:encryption}
 
-If a public key is specified:
-\begin{verbatim}
-[magic number][version][pub key len][public key][header len][encrypted header][header signature]
-\end{verbatim}
 
-\subsection{Encrypted Header}
-\subsubsection{Encryption Method}
-The encrypted header is encoded in the Curve25519 message format \cite{RFC7748}.
-
-\subsubsection{Header Signature}
-The header signature is generated using the Ed25519 algorithm \cite{RFC8032}.
-
-\subsubsection{Plain-text Format}
-The plain-text data encoded in the encrypted header has the following overall structure:
-
-The `Encryption\_parameters' type is defined as:
+The `Header\_encryption\_parameters' type is defined as:
 
 \begin{verbatim}
-enum Encryption_method<le_uint32> {
-  chacha20_ietf_poly1305 = 0;
-};
 
-struct Encryption_parameters {
-  byte	checksum[32];
-  enum Encryption_method<le_uint32> method;
+struct Header_encryption_parameters {
+  enum Header_encryption_method<le_uint32> header_encryption_method;
 
-  select (method) {
-    case chacha20_ietf_poly1305:
-      byte      key[32];
-      le_uint96 nonce;
+  select (header_encryption_method) {
+    case X25519_chacha20_ietf_poly1305:
+      byte                         public_key[32];
+      byte                         nonce[12];
   };
 };
 \end{verbatim}
 
-`checksum' is an optional 32-byte SHA-256 checksum of the (unencrypted) data in the file.
+\kw{header\_encryption\_method} is an enumerated type that describes the type of encryption to be used.
 
-`method' is an enumerated type that describes the type of encryption to be used.
-
-`key' is a secret encryption key.
+\kw{public\_key} is the writer's public key.
 Treated as a concatenation of eight 32-bit little-endian integers.
 
-`nonce' is a unique initialization vector.
+\kw{nonce} is a unique initialization vector.
 In chacha20\_ietf\_poly1305 it is 12 bytes long.
+This value must be unique for each file shared between the same reader and writer.
+The best way to ensure this is to generate a value with a cryptographically-secure random number generator.
+
+\subsubsection{Encrypted Header Format}
+
+The encrypted header encodes the parameters used to read the data part of the file.
+The plain-text is defined as:
+
+\begin{verbatim}
+enum Data_encryption_method<le_uint32> {
+  chacha20_ietf_poly1305 = 0;
+};
+
+struct EncryptionParameters {
+  enum EncryptionMethod<le_uint32>  data_encryption_method;
+  select (method) {
+    case chacha20_ietf_poly1305:
+      byte                          key[32];
+  };
+};
+\end{verbatim}
+
+\kw{data\_encryption\_method} is an enumerated type that describes the type of encryption to be used.
+
+\kw{key} is the symmetric key used to decode the data section.
+
+\subsubsection{X25519\_chacha20\_ietf\_poly1305 Encryption}
+
+This method uses Diffie-Hellman key exchange with additional hashing to generate a shared key.
+The shared key is then used along with a randomly-generated nonce to encrypt the data using the chacha20\_ietf\_poly1305
+construction.
+
+Encryption requires the writer's public and secret keys ($K_{pw}$ and $K_{sw}$), the reader's public key ($K_{pr}$)
+and the nonce ($N$).
+
+The writer's secret key and the reader's public key are used to generate a Diffie\_Hellman shared key using the
+X25519 algorithm described in section 5 of \cite{RFC7748}.
+
+$K_{dh} = X25519(K_{sw}, K_{pr})$
+
+As the X25519 algorithm does not produce a completely uniform bit distribution, and many possible $(K_{sw}, K_{pr})$
+pairs can produce the same output, the Diffie-Hellman key is hashed along with the two public keys to produce the
+final shared key.
+The hash function used to do this is Blake2b, as described in \cite{RFC7693}.
+
+$K_s = Blake2b(K_{dh} || K_{pr} || K_{pw})$
+
+As ChaCha20 uses a 32-byte key, only the first 32 bytes of $K_s$ are used; the rest are discarded.
+
+The header data is then encrypted using the method described in the ChaCha20\_IETF\_Poly1305 Encryption
+section~\ref{data:chacha20_encryption}.
+
+Finally, the writer's public key $K_{pw}$, the nonce $N$ and the encrypted header data are combined into
+the file header.
+
+\subsubsection{X25519\_chacha20\_ietf\_poly1305 Decryption}
+
+To decrypt the header, the reader needs the writer's public key $K_{pw}$ and the nonce from the file header.
+Also needed are the reader's public and secret keys ($K_{pr}$ and $K_{sr}$).
+
+The Diffie-Helman key is obtained using:
+
+$K_{dh} = X25519(K_{sr}, K_{pw})$
+
+This is then hashed to obtain the shared key (again only the first 32 bytes are retained):
+
+$K_s = Blake2b(K_{dh} || K_{pr} || K_{pw})$
+
+The resulting key $K_s$ and nonce $N$ are then used to decrypt the remainder of the header.
 
 \subsection{Encrypted Data}
-\subsubsection{ChaCha20 Mode Encryption}
+\subsubsection{ChaCha20\_IETF\_Poly1305 Encryption}\label{data:chacha20_encryption}
 
-Internally, ChaCha20 works like a block cipher used in counter mode.
-It includes an internal block counter to avoid incrementing the nonce after each block.
-The cipher-text is the message combined with the output of the stream cipher using the XOR operation,
-and doesn't include any authentication tag.
-In IETF mode the nonce is 96 bits long and the counter is 32 bits long.
+ChaCha20 is a stream cipher which maps a 256-bit key, nonce and counter to a 512-bit keystream block.
+In IETF mode the nonce is 96 bits long and the counter is 32 bits.
+The counter starts at 1, and is incremented by 1 for each successive keystream block.
+The cipher-text is the plain-text message combined with the keystream using the bitwise exclusive-or operation.
 
-ChaCha20-Poly1305 uses ChaCha20 to encrypt a message and uses the Poly1305 algorithm to
-generate a 16-byte MAC over the encrypted data, which is appended at the end of the
-cipher-text.
-The MAC is generated for the whole cipher-text that is provided.
-It is not possible to authenticate partially decrypted data.
+Poly1305 is used to generate a 16-byte message authentication code (MAC) over the cipher-text.
+As the MAC is generated over the entire cipher-text it is not possible to authenticate partially decrypted data.
 
-While it is possible to decrypt individual blocks in ChaCha20, to authenticate the content
-it is necessary to decrypt the entire cipher-text,  with the authentication tag at the end.
-To retain streaming and random access capabilities it is necessary to ensure that segments
-of the data can be authenticated, without having to read and process the whole file.
-In this format the plain-text is divided into 64KiB segments and encrypted to 64KiB of cipher-text.
-A MAC is generated for each encrypted segment individually and appended to each 64KiB block of cipher-text.
-This expands the data by 16 bytes, so a 65536 byte plain-text input will become a 65552 byte encrypted
-and authenticated output.
+ChaCha20 and Poly1305 are combined using the AEAD construction described in section 2.8 of \cite{RFC8439}.
+This construction allows additional authenticated data (AAD) to be included in the Poly1305 MAC calculation.
+For the purposes of this format, the AAD is zero bytes long.
 
-A dual counter method is used, where the nonce is incremented after each 64K segment, and
-the counter is incremented within each segment, producing a unique IV (nonce+counter) for
-each cipher block even if the input is very large.
-The initial value used for the counter when encrypting each 64KiB block is 1.
+\subsubsection{Segmenting the input}
 
-The cipher-text is decrypted by authenticating and decrypting the segment(s) enclosing
-the requested byte range.
-To decrypt starting from a plain-text position P, first the location of the segment containing that position
-must be found.
+To allow random access without having to authenticate the entire file, the plain-text is divided into 65536-byte
+(64KiB) segments.
+If the plain-text is not a multiple of 64KiB long, the last segment will be shorter.
+Each segment is encrypted using the method defined in the header.
+The nonce used to encrypt the segment is then stored, followed by the encrypted data, and then the MAC.
 
 \begin{verbatim}
-seg_start = header_len + floor(P/65536) * 65552
+struct Segment {
+  select (method) {
+    case chacha20_ietf_poly1305:
+      byte    nonce[12];
+      byte[]  encrypted_data;
+      byte    mac[16];
+  };
+};
 \end{verbatim}
 
-The 65552 bytes (possibly fewer at the end of the file) starting at this position are read to obtain the encrypted
-data and 16 byte MAC.
-Next the nonce for the segment is calculated.
+The addition of the \kw{nonce} and \kw{mac} bytes will expand the data slightly.
+For chacha20\_ietf\_poly1305, this expansion will be 28 bytes, so a 65536 byte plain-text input will become a 65564
+byte encrypted and authenticated cipher-text output.
+
+\section{Decryption}
+
+The cipher-text is decrypted by authenticating and decrypting the segment(s) enclosing the requested byte range $[P;Q]$,
+where $P<Q$.
+For a range starting at position $P$, the location of the segment \kw{seg\_start} containing that position must
+first be found.
+For the chacha20\_ietf\_poly1305 method, this can be done using the formula:
 
 \begin{verbatim}
-seg_nonce = nonce + floor(P/65536)
+seg_start = header_len + floor(P/65536) * 65564
 \end{verbatim}
 
-The key, nonce, encrypted data and MAC are then used to obtain the plain text.
-Finally (P mod 65536) bytes at the start are discarded from the plain text to give the desired output.
+For an encrypted segment starting at position \kw{seg\_start}, the nonce, then the 65536 bytes of ciphertext
+(possibly fewer of it was the last segment), and finally the MAC are read.
 
-Implementation details for ChaCha20-ietf-Poly1305are described in \cite{RFC8439}.
+An authentication tag is calculated over the ciphertext from that segment, and bitwise compared to the MAC.
+The ciphertext is authenticated if and only if the tags match.
+An error MUST be reported if the ciphertext is not authenticated.
 
-\subsubsection{Partial Segments}
-It is likely that the end of the file will not occur at an exact multiple of the cipher block or
-64K segment length.
-In such cases the short block will be encrypted in the way described above, apart from the block size will
-now be the number of remaining bytes.
-This will produce an encrypted output which will be exactly 16 bytes longer than the input.
-
-If the last block is found to be shorter than 65552 bytes on reading, the last 16 bytes should be taken as
-the MAC, and the remaining bytes as the short block to decrypt.
-If the last block is found to be shorter than 16 bytes the file is corrupt and an error should be reported.
+The key and nonce are then used to decrypt the cipher-text for the segment, returning the plain-text.
+Successive segments are decrypted, until the segment containing position $Q$ is reached.
+The plaintext segments are concatenated to form the resulting output, discarding $P \mathbin{\%} 65536$ bytes from
+the beginning of the first segment and retaining $Q \mathbin{\%} 65536$ bytes of the last one.
 
 \section{Security Considerations}
 \subsection{Threat Model}
 This format is designed to protect files at rest and in transport from accidental disclosure.
 Using authenticated encryption in individual segments mirrors solutions like Transport Layer
-Security (TLS) as described in \cite{RFC5246} and prevent undetected modification of segments.
+Security (TLS) as described in~\cite{RFC5246} and prevents undetected modification of segments.
 
-\subsection{Selection of Key and Nonce}
-The security of the format depends on attackers not being able to guess the encryption key (and to a lesser extent
-the nonce).
-The encryption key and nonce MUST be generated using a cryptographically-secure pseudo-random number generator.
+\subsection{Selection of Key}
+The security of the format depends on attackers not being able to guess the encryption key.
+The encryption key MUST be generated using a cryptographically-secure pseudo-random number generator.
 This makes the chance of guessing a key vanishingly small.
-Additional security can be provided by using `Associated Data' when encrypting a file.
-This data must be used to decrypt the data, although it is not part of the encrypted file
-\cite{RFC8439}.
+
+\subsection{Nonce selection}
+All segments encrypted with the same key MUST use a unique nonce.
+One way to ensure this is to choose a random starting point and then use a counter or linear-feedback shift
+register to generate the nonce for each segment.
+This method guarantees a unique value even for very long files.
+
+For a 96-bit nonce, it may be acceptable to generate each one using a cryptographically-secure pseudo-random number
+generator.
+Care should be taken to ensure that the random number generator is capable of generating a long enough stream
+of unique values.
+Due to the birthday problem, this method will have a non-zero (but very small) probability of failing.
+For example, a file of 24 Terabytes will have a reused nonce with probability of approximately $10^-12$
 
 \subsection{Message Forgery}
 Using Curve25519 and Ed25519 authenticates the content of the encrypted file header.
@@ -366,8 +396,10 @@ Using ChaCha20-ietf-Poly1305 authenticates the content of each segment of the en
 Implementations MUST NOT update encrypted files.
 Once written, a section of the file must never be altered.
 
-\section{References}
+\addcontentsline{toc}{section}{References}
+\bibliographystyle{abstract}
 
+\renewcommand{\refname}{\section{References}} % Get References numbered correctly in the table of contents
 \begin{thebibliography}{XXXXXXX}
 
 % Normative references
@@ -376,7 +408,13 @@ Once written, a section of the file must never be altered.
   Bradner, S.,\\
   \emph{"Key words for use in RFCs to Indicate Requirement Levels", BCP 14, RFC 2119},\\
   \url{https://www.rfc-editor.org/info/rfc2119},\\
-  March 1997.
+  March 1997
+
+\bibitem[RFC7693]{RFC7693}
+  Saarinen, M.J., Aumasson, J.P.\\
+  \emph{"The BLAKE2 Cryptographic Hash and Message Authentication Code (MAC)", RFC7693},\\
+  \url{https://tools.ietf.org/html/rfc7693},\\
+  November 2015
 
 \bibitem[RFC7748]{RFC7748}
   A. Langley, Google, M. Hamburg, Rambus Cryptography Research, S. Turner, sn3rd,\\
