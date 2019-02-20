@@ -457,7 +457,7 @@ POST and GET requests should use the same URLs.
 ## Query parameters
 
 The query parameters are similar to those used in the GET request, formatted into a JSON object.
-The `referenceName`, `start` and `end` parameters are not used for POST requests as they are replaced by `regions` which allows more that one range to be specified.
+The `referenceName`, `start` and `end` parameters are not used for POST requests as they are replaced by `regions` which allows more than one range to be specified.
 
 <table><tbody><tr markdown="block"><td>
 
@@ -555,7 +555,7 @@ The end position of the range on the reference, 0-based exclusive.
 If not present, data will be returned up to the end of the reference.
 
 The server SHOULD respond with an `InvalidRange` error if `start` and `end`
-are specified and `start` is greater than `end`.
+are specified and `start` is greater than or equal to `end`.
   </td></tr></tbody></table>
 </td></tr></tbody></table>
 
