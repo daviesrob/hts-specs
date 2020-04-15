@@ -119,7 +119,7 @@ If a request to the URL of an API method includes the `Origin` header, its conte
 The values of `Origin` and `Access-Control-Request-Headers` (if any) of the request will be propagated to `Access-Control-Allow-Origin` and `Access-Control-Allow-Headers` respectively in the preflight response.
 The `Access-Control-Max-Age` of the preflight response is set to the equivalent of 30 days.
 
-# Request
+# GET request
 
 ## Methods
 
@@ -278,172 +278,7 @@ QUAL	| Base quality scores
 
 Example: `fields=QNAME,FLAG,POS`.
 
-# Response
-
-## Response JSON fields
-
-<table>
-<tr markdown="block"><td>
-
-`htsget`
-_object_
-</td><td>
-Container for response object.
-<table>
-<tr markdown="block"><td>
-
-`format`  
-_string_
-</td><td>
-Response data in this format. The allowed values for each type of record are:
-
-* Reads: BAM (default), CRAM.
-* Variants: VCF (default), BCF.
-</td></tr>
-<tr markdown="block"><td>
-
-`urls`  
-_array of objects_
-</td><td>
-
-An array providing URLs from which raw data can be retrieved. The client must retrieve binary data blocks from each of these URLs and concatenate them to obtain the complete response in the requested format.
-
-Each element of the array is a JSON object with the following fields:
-
-<table>
-<tr markdown="block"><td>
-
-`url`  
-_string_
-</td><td>
-
-One URL.
-
-May be either a `https:` URL or an inline `data:` URI. HTTPS URLs require the client to make a follow-up request (possibly to a different endpoint) to retrieve a data block. Data URIs provide a data block inline, without necessitating a separate request.
-
-Further details below.
-</td></tr>
-<tr markdown="block"><td>
-
-`headers`  
-_optional object_
-</td><td>
-
-For HTTPS URLs, the server may supply a JSON object containing one or more string key-value pairs which the client MUST supply as headers with any request to the URL. For example, if headers is `{"Range": "bytes=0-1023", "Authorization": "Bearer xxxx"}`, then the client must supply the headers `Range: bytes=0-1023` and `Authorization: Bearer xxxx` with the HTTPS request to the URL.
-</td></tr>
-<tr markdown="block"><td>
-
-`class`
-_optional string_
-</td><td>
-
-For file formats whose specification describes a header and a body, the class indicates which of the two will be retrieved when querying this URL. The allowed values are `header` and `body`.
-
-Either all or none of the URLs in the response MUST have a class attribute.
-If `class` fields are not supplied, no assumptions can be made about which data blocks contain headers, body records, or parts of both.
-</td></tr>
-</table>
-
-</td></tr>
-<tr markdown="block"><td>
-
-`md5`  
-_optional hex string_
-</td><td>
-
-MD5 digest of the blob resulting from concatenating all of the "payload" data --- the url data blocks.
-</td></tr>
-</table>
-</td></tr>
-</table>
-
-An example of a JSON response is:
-```json
-{
-   "htsget" : {
-      "format" : "BAM",
-      "urls" : [
-         {
-            "url" : "data:application/vnd.ga4gh.bam;base64,QkFNAQ==",
-            "class" : "header"
-         },
-         {
-            "url" : "https://htsget.blocksrv.example/sample1234/header",
-            "class" : "header"
-         },
-         {
-            "url" : "https://htsget.blocksrv.example/sample1234/run1.bam",
-            "headers" : {
-               "Authorization" : "Bearer xxxx",
-               "Range" : "bytes=65536-1003750"
-             },
-            "class" : "body"
-         },
-         {
-            "url" : "https://htsget.blocksrv.example/sample1234/run1.bam",
-            "headers" : {
-               "Authorization" : "Bearer xxxx",
-               "Range" : "bytes=2744831-9375732"
-            },
-            "class" : "body"
-         }
-      ]
-   }
-}
-```
-
-## Response data blocks
-
-### Diagram of core mechanic
-
-![Diagram showing ticket flow](pub/htsget-ticket.png)
-
-1. Client sends a request with id, genomic range, and filter.
-2. Server replies with a ticket describing data block locations (URLs and headers).
-3. Client fetches the data blocks using the URLs and headers.
-4. Client concatenates data blocks to produce local blob.
-
-While the blocks must be finally concatenated in the given order, the client may fetch them in parallel and/or reuse cached data from URLs that have previously been downloaded.
-
-When making a series of requests to fetch reads or variants within different regions of the same `<id>` resource, clients may wish to avoid re-fetching the SAM/CRAM/VCF headers each time, especially if they are large.
-If the ticket contains `class` fields, the client may reuse previously downloaded and parsed headers rather than re-fetching the `header`-class URLs.
-
-### HTTPS data block URLs
-
-1. must have percent-encoded path and query (e.g. javascript encodeURIComponent; python urllib.urlencode)
-2. must accept GET requests
-3. should provide CORS
-4. should allow multiple request retries, within reason
-5. should use HTTPS rather than plain HTTP except for testing or internal-only purposes (providing both security and robustness to data corruption in flight)
-6. need not use the same authentication scheme as the API server. URL and `headers` must include any temporary credentials necessary to access the data block. Client must not send the bearer token used for the API, if any, to the data block endpoint, unless copied in the required `headers`.
-7. Server must send the response with either the Content-Length header, or chunked transfer encoding, or both. Clients must detect premature response truncation.
-8. Client and URL endpoint may mutually negotiate HTTP/2 upgrade using the standard mechanism.
-9. Client must follow 3xx redirects from the URL, subject to typical fail-safe mechanisms (e.g. maximum number of redirects), always supplying the `headers`, if any.
-10. If a byte range HTTP header accompanies the URL, then the client MAY decompose this byte range into several sub-ranges and open multiple parallel, retryable requests to fetch them. (The URL and `headers` must be sufficient to authorize such behavior by the client, within reason.)
-
-### Inline data block URIs
-
-e.g. `data:application/vnd.ga4gh.bam;base64,SGVsbG8sIFdvcmxkIQ==` ([RFC 2397], [Data URI]).
-The client obtains the data block by decoding the embedded base64 payload.
-
-1. must use base64 payload encoding (simplifies client decoding logic)
-2. client should ignore the media type (if any), treating the payload as a partial blob.
-
-Note: the base64 text should not be additionally percent encoded.
-
-### Reliability & performance considerations
-
-To provide robustness to sporadic transfer failures, servers should divide large payloads into multiple data blocks in the `urls` array. Then if the transfer of any one block fails, the client can retry that block and carry on, instead of starting all over. Clients may also fetch blocks in parallel, which can improve throughput.
-
-Initial guidelines, which we expect to revise in light of future experience:
-* Data blocks should not exceed ~1GB
-* Inline data URIs should not exceed a few megabytes
-
-### Security considerations
-
-The data block URL and headers might contain embedded authentication tokens; therefore, production clients and servers should not unnecessarily print them to console, write them to logs, embed them in error messages, etc.
-
-# POST requests
+# POST request
 
 In addition to the GET method, servers may optionally also accept POST requests.
 The main differences to the GET method are that query parameters are encoded in JSON format and it is possible to request data for more than one genomic range.
@@ -622,9 +457,170 @@ A record will only be returned once, even if it matches more than one location i
 As with the GET request, the server response may contain a super-set of the desired results.
 Clients will need to filter out any extraneous records if necessary.
 
-## Response
+# Response
 
-The response is a JSON ticket, as described for the GET method.
+## Response JSON fields
+
+<table>
+<tr markdown="block"><td>
+
+`htsget`
+_object_
+</td><td>
+Container for response object.
+<table>
+<tr markdown="block"><td>
+
+`format`  
+_string_
+</td><td>
+Response data in this format. The allowed values for each type of record are:
+
+* Reads: BAM (default), CRAM.
+* Variants: VCF (default), BCF.
+</td></tr>
+<tr markdown="block"><td>
+
+`urls`  
+_array of objects_
+</td><td>
+
+An array providing URLs from which raw data can be retrieved. The client must retrieve binary data blocks from each of these URLs and concatenate them to obtain the complete response in the requested format.
+
+Each element of the array is a JSON object with the following fields:
+
+<table>
+<tr markdown="block"><td>
+
+`url`  
+_string_
+</td><td>
+
+One URL.
+
+May be either a `https:` URL or an inline `data:` URI. HTTPS URLs require the client to make a follow-up request (possibly to a different endpoint) to retrieve a data block. Data URIs provide a data block inline, without necessitating a separate request.
+
+Further details below.
+</td></tr>
+<tr markdown="block"><td>
+
+`headers`  
+_optional object_
+</td><td>
+
+For HTTPS URLs, the server may supply a JSON object containing one or more string key-value pairs which the client MUST supply as headers with any request to the URL. For example, if headers is `{"Range": "bytes=0-1023", "Authorization": "Bearer xxxx"}`, then the client must supply the headers `Range: bytes=0-1023` and `Authorization: Bearer xxxx` with the HTTPS request to the URL.
+</td></tr>
+<tr markdown="block"><td>
+
+`class`
+_optional string_
+</td><td>
+
+For file formats whose specification describes a header and a body, the class indicates which of the two will be retrieved when querying this URL. The allowed values are `header` and `body`.
+
+Either all or none of the URLs in the response MUST have a class attribute.
+If `class` fields are not supplied, no assumptions can be made about which data blocks contain headers, body records, or parts of both.
+</td></tr>
+</table>
+
+</td></tr>
+<tr markdown="block"><td>
+
+`md5`  
+_optional hex string_
+</td><td>
+
+MD5 digest of the blob resulting from concatenating all of the "payload" data --- the url data blocks.
+</td></tr>
+</table>
+</td></tr>
+</table>
+
+An example of a JSON response is:
+```json
+{
+   "htsget" : {
+      "format" : "BAM",
+      "urls" : [
+         {
+            "url" : "data:application/vnd.ga4gh.bam;base64,QkFNAQ==",
+            "class" : "header"
+         },
+         {
+            "url" : "https://htsget.blocksrv.example/sample1234/header",
+            "class" : "header"
+         },
+         {
+            "url" : "https://htsget.blocksrv.example/sample1234/run1.bam",
+            "headers" : {
+               "Authorization" : "Bearer xxxx",
+               "Range" : "bytes=65536-1003750"
+             },
+            "class" : "body"
+         },
+         {
+            "url" : "https://htsget.blocksrv.example/sample1234/run1.bam",
+            "headers" : {
+               "Authorization" : "Bearer xxxx",
+               "Range" : "bytes=2744831-9375732"
+            },
+            "class" : "body"
+         }
+      ]
+   }
+}
+```
+
+## Response data blocks
+
+### Diagram of core mechanic
+
+![Diagram showing ticket flow](pub/htsget-ticket.png)
+
+1. Client sends a request with id, genomic range, and filter.
+2. Server replies with a ticket describing data block locations (URLs and headers).
+3. Client fetches the data blocks using the URLs and headers.
+4. Client concatenates data blocks to produce local blob.
+
+While the blocks must be finally concatenated in the given order, the client may fetch them in parallel and/or reuse cached data from URLs that have previously been downloaded.
+
+When making a series of requests to fetch reads or variants within different regions of the same `<id>` resource, clients may wish to avoid re-fetching the SAM/CRAM/VCF headers each time, especially if they are large.
+If the ticket contains `class` fields, the client may reuse previously downloaded and parsed headers rather than re-fetching the `header`-class URLs.
+
+### HTTPS data block URLs
+
+1. must have percent-encoded path and query (e.g. javascript encodeURIComponent; python urllib.urlencode)
+2. must accept GET requests
+3. should provide CORS
+4. should allow multiple request retries, within reason
+5. should use HTTPS rather than plain HTTP except for testing or internal-only purposes (providing both security and robustness to data corruption in flight)
+6. need not use the same authentication scheme as the API server. URL and `headers` must include any temporary credentials necessary to access the data block. Client must not send the bearer token used for the API, if any, to the data block endpoint, unless copied in the required `headers`.
+7. Server must send the response with either the Content-Length header, or chunked transfer encoding, or both. Clients must detect premature response truncation.
+8. Client and URL endpoint may mutually negotiate HTTP/2 upgrade using the standard mechanism.
+9. Client must follow 3xx redirects from the URL, subject to typical fail-safe mechanisms (e.g. maximum number of redirects), always supplying the `headers`, if any.
+10. If a byte range HTTP header accompanies the URL, then the client MAY decompose this byte range into several sub-ranges and open multiple parallel, retryable requests to fetch them. (The URL and `headers` must be sufficient to authorize such behavior by the client, within reason.)
+
+### Inline data block URIs
+
+e.g. `data:application/vnd.ga4gh.bam;base64,SGVsbG8sIFdvcmxkIQ==` ([RFC 2397], [Data URI]).
+The client obtains the data block by decoding the embedded base64 payload.
+
+1. must use base64 payload encoding (simplifies client decoding logic)
+2. client should ignore the media type (if any), treating the payload as a partial blob.
+
+Note: the base64 text should not be additionally percent encoded.
+
+### Reliability & performance considerations
+
+To provide robustness to sporadic transfer failures, servers should divide large payloads into multiple data blocks in the `urls` array. Then if the transfer of any one block fails, the client can retry that block and carry on, instead of starting all over. Clients may also fetch blocks in parallel, which can improve throughput.
+
+Initial guidelines, which we expect to revise in light of future experience:
+* Data blocks should not exceed ~1GB
+* Inline data URIs should not exceed a few megabytes
+
+### Security considerations
+
+The data block URL and headers might contain embedded authentication tokens; therefore, production clients and servers should not unnecessarily print them to console, write them to logs, embed them in error messages, etc.
 
 # Possible future enhancements
 
