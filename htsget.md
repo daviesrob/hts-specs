@@ -83,6 +83,7 @@ Error type	| HTTP status code | Description
 InvalidAuthentication	| 401	| Authorization provided is invalid
 PermissionDenied	| 403	| Authorization is required to access the resource
 NotFound		| 404	| The resource requested was not found
+PayloadTooLarge         | 413   | POST request size is too large
 UnsupportedFormat	| 400	| The requested file format is not supported by the server
 InvalidInput		| 400	| The request parameters do not adhere to the specification
 InvalidRange		| 400	| The requested range cannot be satisfied
@@ -449,6 +450,9 @@ The main differences to the GET method are that query parameters are encoded in 
 The data returned is a JSON "ticket", as described for the GET method.
 
 Htsget POST requests must be "safe" as defined in section 4.2.1 of [RFC 7231], that is they must be essentially read-only.
+
+It should be expected that htsget servers will have a limit on the size of POST request that they can accept.
+If an incoming POST request is too large, the server SHOULD reply with a `PayloadTooLarge` error.
 
 ## URL parameters
 
