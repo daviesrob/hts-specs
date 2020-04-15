@@ -483,6 +483,27 @@ The server SHOULD reply with an `UnsupportedFormat` error if the requested forma
 </td></tr>
 <tr markdown="block"><td>
 
+`class`
+_optional string_
+</td><td>
+
+Request different classes of data.
+As for GET requests, if `class` is not specified the response will comprise the full data stream including file headers, body data records and EOF marker.
+If `class` is specified, its value MUST be one of the following:
+
+<table>
+<tr markdown="block"><td>
+
+`header`
+</td><td>
+
+Request the SAM/CRAM/VCF headers only.
+
+The server SHOULD respond with an `InvalidInput` error if any parameters other than `format` are specified at the same time as `"class" : "header"`.
+</td></tr>
+</table>
+</td></tr>
+
 `fields`  _optional array of strings_
 </td><td>
 
