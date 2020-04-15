@@ -531,7 +531,7 @@ Tag name _string_
 `notags`  _optional array of strings_
 </td><td>
 
-List of tags to exclude, default: none.  If an empty array is specified, no tags are included.
+List of tags to exclude, default: none.
 
 The server SHOULD respond with an `InvalidInput` error if `tags` and `notags` intersect.
   <table><tbody><tr markdown="block"><td>
