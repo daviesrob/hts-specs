@@ -458,10 +458,15 @@ If an incoming POST request is too large, the server SHOULD reply with a `Payloa
 
 POST and GET requests should use the same URLs.
 
-## Query parameters
+POST requests MUST NOT use and of the query parameters defined for GET requests on the URL.
+If query parameters are present, the server SHOULD reply with an `InvalidInput` error.
 
-The query parameters are similar to those used in the GET request, formatted into a JSON object.
-The `referenceName`, `start` and `end` parameters are not used for POST requests as they are replaced by `regions` which allows more than one range to be specified.
+## Request body
+
+The POST request body is a JSON object containing the request parameters,
+which have similar names and meanings to those used in the GET query.
+A notable difference is that the  `referenceName`, `start` and `end` parameters are not used at the top level of the JSON object.
+Instead as they are put into an array under the `regions` key, which allows more than one range to be specified.
 
 <table><tbody><tr markdown="block"><td>
 
