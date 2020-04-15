@@ -464,7 +464,7 @@ The `referenceName`, `start` and `end` parameters are not used for POST requests
 `format`  _optional string_
 </td><td>
 
-Request read data in this format.
+Request data in this format.
 The allowed values for each type of record are:
 
 * Reads: BAM (default), CRAM.
