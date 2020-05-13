@@ -71,19 +71,7 @@ paths:
           example: "fields=QNAME,RNAME"
           required: false
           schema:
-            enum:
-              - "QNAME"
-              - "FLAG"
-              - "RNAME"
-              - "POS"
-              - "MAPQ"
-              - "CIGAR"
-              - "RNEXT"
-              - "PNEXT"
-              - "TLEN"
-              - "SEQ"
-              - "QUAL"
-            type: string
+            $ref: '#/components/schemas/fieldsParameterDictionary'
         - in: "query"
           name: tags
           description: A comma separated list of tags to include, by default all.
@@ -149,6 +137,72 @@ paths:
         - htsget_auth:
           - read:genomic_reads
 
+    post:
+      summary: Gets the reads from a pre-indexed id
+      operationId: searchReadIdPost
+      description: |
+        Retrieve one or more regions from a pre-indexed object id.
+      requestBody:
+        content:
+          'application/json':
+             schema:
+               type: object
+               properties:
+                 format:
+                   description: File format, BAM (default), CRAM.
+                   type: string
+                 class:
+                   description: Request different classes of data (such as header or body).
+                   example: "header"
+                   required: false
+                   type: string
+                 fields:
+                   description: A list of fields to include, such as QNAME, FLAG, RNAME, etc...
+                   example: "fields=QNAME,RNAME"
+                   required: false
+                   type: array
+                   items:
+                     schema:
+                       $ref: '#/components/schemas/fieldsParameterDictionary'
+                 tags:
+                   description: An array of tags to include, by default all.
+                   example: '["MD","NM"]'
+                   required: false
+                   type: array
+                   items:
+                     type: string
+                 notags:
+                   description: An array of tags to exclude, by default none.
+                   example: '["OQ"]'
+                   required: false
+                   type: array
+                   items:
+                     type: string
+                 regions:
+                   description: |
+                     Regions to return.
+                     If not present, the entire file will be returned.
+                     When present, the array must contain at least one region specification.
+                     Note that regions will be returned in the order that they appear in the file,
+                     which may not match the order in the list.
+                     Any overlapping regions will be merged.
+
+                   type: array
+                   items:
+                     type: object
+                     properties:
+                       referenceName:
+                         description: The reference sequence name
+                         example: "chr1"
+                         type: string
+                       start:
+                         description:
+                           The start position of the range on the reference, 0-based, inclusive.
+                         type: integer
+                       end:
+                         description:
+                           The end position of the range on the reference, 0-based exclusive.
+                         type: integer
 
   /variants/{id}:
     get:
@@ -265,6 +319,22 @@ paths:
 
 components:
   schemas:
+    fieldsParameterDictionary:
+      type: string
+      enum:
+        - "QNAME"
+        - "FLAG"
+        - "RNAME"
+        - "POS"
+        - "MAPQ"
+        - "CIGAR"
+        - "RNEXT"
+        - "PNEXT"
+        - "TLEN"
+        - "SEQ"
+        - "QUAL"
+
+
     IdResponse:
       $ref: '#/components/schemas/htsgetResponse'
 
