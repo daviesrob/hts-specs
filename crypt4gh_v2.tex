@@ -26,7 +26,7 @@
 \begin{document}
 
 \input{crypt4gh.ver}
-\title{GA4GH File Encryption Standard}
+\title{GA4GH File Encryption Standard, version 2}
 \date{\headdate}
 \maketitle
 \begin{quote}\small
@@ -237,13 +237,14 @@ in which case each key will be stored in a separate data\_encryption\_parameters
   Data Encryption Parameters header packet
 };
 
-\node (header) [boxes=6,below=3.5 of file.two split south] {
+\node (header) [boxes=7,below=3.5 of file.two split south] {
 \nodepart{one}Magic \\ ``crypt4gh''
 \nodepart{two}Version
-\nodepart{three}Packet Count
-\nodepart{four}Header Packet
-\nodepart{five}Header Packet
-\nodepart{six}Header Packet...
+\nodepart{three}Header Packet Encryption Method
+\nodepart{four}Writer's Public Key $K_{pw}$
+\nodepart{five}Packet Count
+\nodepart{six}Header Packet
+\nodepart{seven}Header Packet...
 };
 \draw (file.south west) to (header.north west);
 \draw (file.one split south) to (header.north east);
@@ -253,16 +254,14 @@ in which case each key will be stored in a separate data\_encryption\_parameters
   Header packets individually encrypted for reader
 };
 
-\node (header packet) [boxes=6,below=of header.four south] {
+\node (header packet) [boxes=4,below=of header.six south] {
 \nodepart{one}Packet Length
-\nodepart{two}Encryption Method
-\nodepart{three}Writer's Public Key
-\nodepart{four}Nonce
-\nodepart[text width=10em]{five}Encrypted Packet Data
-\nodepart{six}MAC
+\nodepart{two}Nonce
+\nodepart[text width=10em]{three}Encrypted Packet Data
+\nodepart{four}MAC
 };
-\draw (header.three split south) to (header packet.north west);
-\draw (header.four split south) to (header packet.north east);
+\draw (header.five split south) to (header packet.north west);
+\draw (header.six split south) to (header packet.north east);
 \node (header packet notes) at (header packet -| file notes) [notes,text width=30em] {
   \textbf{Header Packet} \\
   Packet data encrypted using key $K_{shared}$ derived from writer's public key ($K_{pw}$) and reader's secret key ($K_{sr}$)
@@ -273,8 +272,8 @@ in which case each key will be stored in a separate data\_encryption\_parameters
 \nodepart{two}Encryption Method
 \nodepart[text width=10em]{three}Data Encryption Key
 };
-\draw (header packet.four split south) to (data encryption packet.north west);
-\draw (header packet.five split south) to (data encryption packet.north east);
+\draw (header packet.two split south) to (data encryption packet.north west);
+\draw (header packet.three split south) to (data encryption packet.north east);
 \node (data encryption packet notes) at (data encryption packet -| file notes) [notes] {
   \textbf{Data Encryption Packet (plain-text)} \\
   Stores $K_{data}$
@@ -301,15 +300,15 @@ The encrypted file structure, shown in the diagram above, consists of the follow
 \begin{itemize}
 \item A ``magic'' string for file type identification.
 \item A version number.
+\item The method used to encrypt header packets.
+\item The writer's public key  ($K_{pw}$) used to encrypt the header packets.
+This is needed (along with the reader's secret key $K_{sr}$)
+to calculate the shared key used to encrypt the header packets.
 \item The header packet count.
 \item One or more header packets containing:
 \begin{itemize}
 \item The packet length in bytes.
-\item The method used to encrypt the header packet data.
-\item The writer's public key  ($K_{pw}$) used to encrypt the header packet data.
-This is needed (along with the reader's secret key $K_{sr}$)
-to calculate the shared key used to encrypt the header packet.
-\item A random ``nonce'', also required for decryption.
+\item A random ``nonce'', required for decryption.
 \item The encrypted data for the header packet.
 \item A MAC calculated over the encrypted header packet data.
 \end{itemize}
@@ -462,10 +461,22 @@ There is NO padding to make the cases the same length unless it is explicitly de
 The file starts with a header, with the following structure:
 
 \begin{verbatim}
+enum Header_encryption_method<le_uint32> {
+  X25519_chacha20_ietf_poly1305 = 0;
+};
+
 struct Header {
   byte                          magic_number[8];
   le_uint32                     version;
   le_uint32                     header_packet_count;
+
+  Header_encryption_method<le_uint32> packet_encryption;
+
+  select (packet_encryption) {
+    case X25519_chacha20_ietf_poly1305:
+      byte   writer_public_key[32];
+  };
+
   Encrypted_header_packet       header_packets[header_packet_count]
 };
 \end{verbatim}
@@ -473,32 +484,31 @@ struct Header {
 The \kw{magic\_number} is the ASCII representation of the string ``crypt4gh''.
 
 The version number is stored as a four-byte little-endian unsigned integer.
-The current version number is 1.
+The current version number is 2.
 
 The current byte representation of the magic number and version is:
 \begin{verbatim}
-0x63 0x72 0x79 0x70 0x74 0x34 0x67 0x68 0x01 0x00 0x00 0x00
+0x63 0x72 0x79 0x70 0x74 0x34 0x67 0x68 0x02 0x00 0x00 0x00
 ============= magic_number============= ===== version =====
 \end{verbatim}
 
 \kw{header\_packet\_count} is the number of header packets that follow.
+
+\kw{packet\_encryption} is the encryption method used for all header packets.
+
+\kw{writer\_public\_key} ($K_{pw}$) is the public key needed to decrypt
+all of the encrypted payload in the header packets.
 
 \subsubsection{Header Packets}\label{header:encryption}
 
 The header packets are defined as:
 
 \begin{verbatim}
-enum Header_encryption_method<le_uint32> {
-  X25519_chacha20_ietf_poly1305 = 0;
-};
-
 struct Header_packet {
   le_uint32                           packet_length;
-  Header_encryption_method<le_uint32> packet_encryption;
 
   select (packet_encryption) {
     case X25519_chacha20_ietf_poly1305:
-      byte   writer_public_key[32];
       byte   nonce[12];
   };
 
@@ -517,9 +527,7 @@ longer than strictly needed to encode all of the packet data.
 Any remaining space after the actual data should be padded in a suitable manner (for example by setting it to zero)
 and encrypted.
 
-\kw{packet\_encryption} is the encryption method used for this header packet.
-
-\kw{writer\_public\_key} ($K_{pw}$) and \kw{nonce} are parameters needed to decrypt the \kw{encrypted\_payload} in the
+\kw{nonce} is a parameter needed to decrypt the \kw{encrypted\_payload} in the
 packet.
 
 \kw{encrypted\_payload} is the encrypted part of the header packet, for which the plain-text is described below.
@@ -642,8 +650,8 @@ As long as the writer uses randomly-generated keys, it also makes accidental non
 
 \subsubsection{X25519\_chacha20\_ietf\_poly1305 Decryption}
 
-To decrypt the header packet, the reader obtains the writer's public key $K_{pw}$ and the nonce from the beginning
-of the packet.
+To decrypt the header packet, the reader obtains the writer's public key $K_{pw}$ from the header
+and the nonce from the beginning of the packet.
 Also needed are the reader's public and secret keys ($K_{pr}$ and $K_{sr}$).
 
 The Diffie-Helman key is obtained using:
@@ -861,8 +869,6 @@ Implementations MUST ensure that secret keys are kept in a secure manner.
 Attackers with write access to files will not be able to make changes to individual blocks as
 (without access to the decryption key) they will not be able to calculate the correct MAC on the new version.
 Such an attacker can, however, make block-level changes such as removing or reordering blocks.
-An attacker with access to the reader's public key ($K_{pr}$) will also be able to add entire blocks by inserting a new
-data\_encryption\_parameters packet in the header, and using the key stored in it to encrypt the new block.
 
 It is expected that files using this format will be decrypted in memory for processing.
 There is a risk of data being leaked either directly or through a side-channel (many of which are difficult to defend
@@ -919,10 +925,18 @@ Due to the birthday problem, this method will have a non-zero (but very small) p
 For example, a file of 24 Terabytes will have a reused nonce with probability of approximately $10^{-12}$
 
 \subsection{Message Forgery}
-Using ChaCha20-IETF-Poly1305 authenticates the content of each header packet and each segment of the encrypted
+Using ChaCha20-IETF-Poly1305 authenticates the content of the header packets and each segment of the encrypted
 cipher-text.
-It does not protect against the addition or removal of header packets, or the addition, removal or rearrangement
-of data segments.
+As all header packets use the same writer's public key,
+it is not possible to add any packets without holding the corresponding secret key.
+It is possible to re-order or remove header packets,
+and to re-write the entire header using a new key.
+To usefully alter the header would require access to either the writer's or a reader's secret key,
+and so also to the unencrypted file content.
+
+The chacha20\_ietf\_poly1305 data encryption method does not protect against the addition,
+removal or rearrangement of data segments.
+
 crypt4gh files are not signed, so there is no direct way to prove that a file was created by a given writer.
 
 \subsection{No File Updates Permitted}
@@ -1118,5 +1132,21 @@ Being able to serve the encrypted data directly and avoiding the need to handle 
 compensate for the minor inefficiency of serving slightly more data (at most 131070 bytes per region) than requested.
 The added complication of supporting edit lists in client code is also fairly minor compared to other
 necessary parts of the format (for example key handling).
+
+\section{Changes from previous crypt4gh specifications}
+
+\subsection{crypt4gh version 1}
+
+\begin{itemize}
+\item The version number in the header has changed from 1 to 2.
+
+\item The writer's public key has been moved from the header packets to the common header at the start of the file.
+This closes a loop-hole that allowed extra header packets to be added to an existing header,
+while only having knowledge of the reader's public key,
+by generating a new writer's key and using that to encrypt the new packet.
+As all header packets must now share the same writer's public key,
+only holders of the corresponding secret key can generate new header packets.
+
+\end{itemize}
 
 \end{document}
