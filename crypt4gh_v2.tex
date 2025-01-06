@@ -468,7 +468,6 @@ enum Header_encryption_method<le_uint32> {
 struct Header {
   byte                          magic_number[8];
   le_uint32                     version;
-  le_uint32                     header_packet_count;
 
   Header_encryption_method<le_uint32> packet_encryption;
 
@@ -476,6 +475,8 @@ struct Header {
     case X25519_chacha20_ietf_poly1305:
       byte   writer_public_key[32];
   };
+
+  le_uint32                     header_packet_count;
 
   Encrypted_header_packet       header_packets[header_packet_count]
 };
@@ -492,12 +493,12 @@ The current byte representation of the magic number and version is:
 ============= magic_number============= ===== version =====
 \end{verbatim}
 
-\kw{header\_packet\_count} is the number of header packets that follow.
-
 \kw{packet\_encryption} is the encryption method used for all header packets.
 
 \kw{writer\_public\_key} ($K_{pw}$) is the public key needed to decrypt
 all of the encrypted payload in the header packets.
+
+\kw{header\_packet\_count} is the number of header packets that follow.
 
 \subsubsection{Header Packets}\label{header:encryption}
 
