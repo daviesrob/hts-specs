@@ -15,6 +15,7 @@
 \newcommand{\tagvalue}[1]{\tt #1}
 \newcommand{\tagregex}[1]{\tt #1}
 \newcommand{\kw}[1]{\texttt{#1}}
+\newcommand{\datatype}[1]{\kw{#1}}
 \newlength{\maxwidth}
 \newcommand{\algalign}[2] % #1 = text to left, #2 = text to right
 {\makebox[\maxwidth][l]{$#1{}$}${}#2$}
@@ -389,12 +390,12 @@ Signed values are stored in two's complement form.
 \hline
 \textbf{Name} & \textbf{Byte Ordering} & \textbf{Integer Type} & \textbf{Size (bytes)} \\
 \hline
-byte & & unsigned & 1 \\
-le\_int32 & little-endian & signed & 4 \\
-le\_uint32 & little-endian & unsigned & 4 \\
-le\_int64 & little-endian & signed & 8 \\
-le\_uint64 & little-endian & unsigned & 8 \\
-le\_uint96 & little-endian & unsigned & 12 \\
+\datatype{byte} & & unsigned & 1 \\
+\datatype{le\_int32} & little-endian & signed & 4 \\
+\datatype{le\_uint32} & little-endian & unsigned & 4 \\
+\datatype{le\_int64} & little-endian & signed & 8 \\
+\datatype{le\_uint64} & little-endian & unsigned & 8 \\
+\datatype{le\_uint96} & little-endian & unsigned & 12 \\
 \end{tabular}
 \end{center}
 
@@ -550,6 +551,7 @@ enum Header_packet_type<le_uint32> {
 
 enum Data_encryption_method<le_uint32> {
   chacha20_ietf_poly1305 = 0;
+  chacha20_ietf_poly1305_with_AD = 1;
 };
 
 struct Encrypted_header_packet {
@@ -561,6 +563,9 @@ struct Encrypted_header_packet {
       select (data_encryption_method) {
         case chacha20_ietf_poly1305:
           byte  data_key[32];
+        case chacha20_ietf_poly1305_with_AD:
+          byte      data_key[32];
+          le_uint64 initial_sequence_number;
       };
 
     case data_edit_list:
@@ -580,10 +585,17 @@ This packet contains the parameters needed to decrypt the data part of the file.
 
 \kw{data\_key} is the symmetric key $K_{data}$ used to decode the data section.
 
+The \kw{initial\_sequence\_number} is an eight byte unsigned integer (\datatype{le\_uint64}).
+It is used by the \kw{chacha20\_ietf\_poly1305\_with\_AD} method to set the
+base value for a counter that is used to validate the order of encrypted blocks
+in the file.
+See section~\ref{data:AD_encrypting_mode} for details of how this is applied.
+
 To allow parts of the data to be encrypted with different $K_{data}$ keys,
 more than one of this packet type may be present.
 If there is more than one, the \kw{data\_encryption\_method} MUST be the same for all of them to prevent problems
 with random access in the encrypted file.
+If the data encryption methods are mixed, the file MUST be rejected.
 
 \subsubsection{data\_edit\_list packet}
 
@@ -685,19 +697,6 @@ If a \kw{data\_edit\_list} packet is found, the reader should store it for use w
 If more than one \kw{data\_edit\_list} packet is present, the file SHOULD be rejected.
 
 \subsection{Encrypted Data}\label{data:encryption}
-\subsubsection{chacha20\_ietf\_poly1305 Encryption}\label{data:chacha20_encryption}
-
-ChaCha20 is a stream cipher which maps a 256-bit key, nonce and counter to a 512-bit key-stream block.
-In IETF mode the nonce is 96 bits long and the counter is 32 bits.
-The counter starts at 1, and is incremented by 1 for each successive key-stream block.
-The cipher-text is the plain-text message combined with the key-stream using the bit-wise exclusive-or operation.
-
-Poly1305 is used to generate a 16-byte message authentication code (MAC) over the cipher-text.
-As the MAC is generated over the entire cipher-text it is not possible to authenticate partially decrypted data.
-
-ChaCha20 and Poly1305 are combined using the AEAD construction described in section 2.8 of \cite{RFC8439}.
-This construction allows additional authenticated data (AAD) to be included in the Poly1305 MAC calculation.
-For the purposes of this format, the AAD is zero bytes long.
 
 \subsubsection{Segmenting the input}
 
@@ -711,6 +710,7 @@ The nonce used to encrypt the segment is then stored, followed by the encrypted 
 struct Segment {
   select (method) {
     case chacha20_ietf_poly1305:
+    case chacha20_ietf_poly1305_with_AD:
       byte    nonce[12];
       byte[]  encrypted_data;
       byte    mac[16];
@@ -722,24 +722,85 @@ The addition of the \kw{nonce} and \kw{mac} bytes will expand the data slightly.
 For chacha20\_ietf\_poly1305, this expansion will be 28 bytes, so a 65536 byte plain-text input will become a 65564
 byte encrypted and authenticated cipher-text output.
 
+\subsubsection{chacha20\_ietf\_poly1305 Encryption}\label{data:chacha20encryption}
+
+ChaCha20 is a stream cipher which maps a 256-bit key, nonce and counter to a 512-bit key-stream block.
+In IETF mode the nonce is 96 bits long and the counter is 32 bits.
+The counter starts at 1, and is incremented by 1 for each successive key-stream block.
+The cipher-text is the plain-text message combined with the key-stream using the bit-wise exclusive-or operation.
+
+Poly1305 is used to generate a 16-byte message authentication code (MAC) over the cipher-text.
+As the MAC is generated over the entire cipher-text it is not possible to authenticate partially decrypted data.
+
+ChaCha20 and Poly1305 are combined using the AEAD construction described in section 2.8 of \cite{RFC8439}.
+This construction allows additional authenticated data (AAD) to be included in the Poly1305 MAC calculation.
+
+For the \kw{chacha20\_ietf\_poly1305} encryption method,
+the AAD is zero bytes long.
+
+For the \kw{chacha20\_ietf\_poly1305\_with\_AD} encryption method,
+the AAD is an eight byte little-endian number as described in the next section.
+
+\subsubsection{chacha20\_ietf\_poly1305\_with\_AD Encryption}\label{data:AD_encrypting_mode}
+
+While the \kw{chacha20\_ietf\_poly1305} MAC ensures individual file segments are unmodified,
+it is not able to detect changes where entire blocks have been reordered or removed.
+To find such changes, the \kw{chacha20\_ietf\_poly1305\_with\_AD} method makes
+use of additional authenticated data to enforce ordering of the file segments.
+It also changes how the file is terminated so that processes reading to the end
+can tell if it has been truncated.
+
+Each data segment is given an index number, in order,
+counting from $0$ at the start of the file.
+The index number is then added modulo $2^{64}$ to the \kw{initial\_sequence\_number}
+in the \kw{data\_encryption\_parameters} header packet.
+The resulting \datatype{le\_uint64} value is used as the AAD in the Poly1305
+message described in section 2.8 of \cite{RFC8439}.
+This makes the MAC depend on the location of the data segment in the file.
+Attempting to reorder segments or delete them will cause decoding to fail,
+either on the reordered segment,
+or the following ones in the case of a deletion.
+
+To detect file truncation,
+where all blocks to the end have been deleted,
+readers can inspect the size of the last segment.
+As the format only permits the last segment to hold fewer than 65536 plain-text bytes,
+successfully decrypting a short segment at the end of the file assures that the correct end-of-file has been reached.
+To allow for files where the plain-text is an exact multiple of 65536 bytes long,
+writers MUST append an extra segment with zero-length plain-text if (and only if)
+the last segment was 65536 bytes long.
+Where present,
+the AAD and MAC for this extra segment will be calculated in the normal way.
+When written out,
+this extra segment will consist of the 12 byte nonce value followed immediately by the 16 byte MAC.
+
 \section{Decryption}
 
-\subsection{chacha20\_ietf\_poly1305 Decryption}
+\subsection{chacha20\_ietf\_poly1305 and chacha20\_ietf\_poly1305\_with\_AD Decryption}
 
 The cipher-text is decrypted by authenticating and decrypting the segment(s) enclosing the requested byte range $[P;Q]$,
 where $P<Q$.
 For a range starting at position $P$, the location of the segment \kw{seg\_start} containing that position must
 first be found.
-For the chacha20\_ietf\_poly1305 method, when no edit list is in use, this can be done using the formula:
+For the both methods, when no edit list is in use, this can be done using the formula:
 
 \begin{verbatim}
 seg_start = header_len + floor(P/65536) * 65564
 \end{verbatim}
 
-For an encrypted segment starting at position \kw{seg\_start}, the nonce, then the 65536 bytes of cipher-text
-(possibly fewer of it was the last segment), and finally the MAC are read.
+For \kw{chacha20\_ietf\_poly1305\_with\_AD} encryption,
+the additional data is also calculated using the formula:
 
-An authentication tag is calculated over the cipher-text from that segment, and bit-wise compared to the MAC.
+\begin{verbatim}
+AD = (initial_sequence_number + floor(P/65536)) modulo 18446744073709551616
+\end{verbatim}
+
+For an encrypted segment starting at position \kw{seg\_start}, the nonce, then the 65536 bytes of cipher-text
+(possibly fewer if it was the last segment), and finally the MAC are read.
+
+An authentication tag is calculated over the cipher-text from that segment,
+along with the additional data (for \kw{chacha20\_ietf\_poly1305\_with\_AD} only),
+and bit-wise compared to the MAC.
 The cipher-text is authenticated if and only if the tags match.
 If more than one key ($K_{data}$) was included in the header,
 each should be tried in turn until either one authenticates correctly or no keys are left to try.
@@ -1136,17 +1197,22 @@ necessary parts of the format (for example key handling).
 
 \section{Changes from previous crypt4gh specifications}
 
-\subsection{crypt4gh version 1}
+\subsection{crypt4gh version 2}
 
 \begin{itemize}
 \item The version number in the header has changed from 1 to 2.
 
 \item The writer's public key has been moved from the header packets to the common header at the start of the file.
 This closes a loop-hole that allowed extra header packets to be added to an existing header,
-while only having knowledge of the reader's public key,
-by generating a new writer's key and using that to encrypt the new packet.
+by generating a new writer's key and using it along with the known reader's public key to encrypt the packets.
 As all header packets must now share the same writer's public key,
 only holders of the corresponding secret key can generate new header packets.
+
+\item The \kw{chacha20\_ietf\_poly1305\_with\_AD} encryption method has been added.
+This gives whole-file authentication by ensuring that blocks cannot be reordered or removed,
+and that the file has not been truncated.
+As with the original \kw{chacha20\_ietf\_poly1305} method,
+the individual blocks are authenticated by the block-level MAC.
 
 \end{itemize}
 
