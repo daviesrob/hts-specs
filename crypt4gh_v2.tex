@@ -961,7 +961,7 @@ Note that the following list is not exhaustive.
 \subsection{Selection of Keys}
 The security of the format depends on attackers not being able to guess secret keys ($K_{sr}$ and $K_{sw}$)
 or the data encryption key ($K_{data}$).
-The keys MUST be generated using a cryptographically-secure pseudo-random number generator.
+The keys MUST be generated using a cryptographically-secure random number generator.
 This makes the chance of guessing a key vanishingly small.
 
 \subsection{Nonce selection}
@@ -979,7 +979,7 @@ One way to ensure this is to choose a random starting point and then use a count
 register to generate the nonce for each segment.
 This method guarantees a unique value even for very long files.
 
-For a 96-bit nonce, it may be acceptable to generate each one using a cryptographically-secure pseudo-random number
+For a 96-bit nonce, it may be acceptable to generate each one using a cryptographically-secure random number
 generator.
 Care should be taken to ensure that the random number generator is capable of generating a long enough stream
 of unique values.
