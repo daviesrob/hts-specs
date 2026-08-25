@@ -24,6 +24,8 @@
 \SetWatermarkText{PRELIMINARY}
 \SetWatermarkScale{4}
 
+\setlength{\emergencystretch}{3em}
+
 \begin{document}
 
 \input{crypt4gh.ver}
@@ -722,7 +724,7 @@ The addition of the \kw{nonce} and \kw{mac} bytes will expand the data slightly.
 For chacha20\_ietf\_poly1305, this expansion will be 28 bytes, so a 65536 byte plain-text input will become a 65564
 byte encrypted and authenticated cipher-text output.
 
-\subsubsection{chacha20\_ietf\_poly1305 Encryption}\label{data:chacha20encryption}
+\subsubsection{chacha20\_ietf\_poly1305 Encryption}\label{data:chacha20_encryption}
 
 ChaCha20 is a stream cipher which maps a 256-bit key, nonce and counter to a 512-bit key-stream block.
 In IETF mode the nonce is 96 bits long and the counter is 32 bits.
