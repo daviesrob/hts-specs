@@ -930,7 +930,14 @@ Implementations MUST ensure that secret keys are kept in a secure manner.
 
 Attackers with write access to files will not be able to make changes to individual blocks as
 (without access to the decryption key) they will not be able to calculate the correct MAC on the new version.
-Such an attacker can, however, make block-level changes such as removing or reordering blocks.
+The chacha20\_ietf\_poly1305 encryption method does not protect against
+block-level changes such as removing or reordering blocks.
+By adding extra checks on block ordering,
+the chacha20\_ietf\_poly1305\_with\_AD method will detect these changes,
+ensuring full-file integrity.
+To prevent downgrade attacks,
+implementations MUST reject files that mix the two encryption methods,
+and SHOULD default to encryption using the chacha20\_ietf\_poly1305\_with\_AD method.
 
 It is expected that files using this format will be decrypted in memory for processing.
 There is a risk of data being leaked either directly or through a side-channel (many of which are difficult to defend
